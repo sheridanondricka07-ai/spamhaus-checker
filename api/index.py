@@ -108,12 +108,22 @@ class handler(BaseHTTPRequestHandler):
                         continue
                 
                 if len(all_results) > 0:
+                    import time
+                    now = time.time()
+                    
+                    # Only consider records that haven't expired yet
+                    active_results = [r for r in all_results if r.get("valid_until", 0) > now]
+                    
                     types = set()
                     reasons = set()
                     dates = set()
                     expiries = set()
                     
-                    for record in all_results:
+                    # Determine display records: if there are active ones, use only those.
+                    # If all are expired, we might still want to show the last known info but set status to Clean.
+                    display_results = active_results if active_results else all_results
+                    
+                    for record in display_results:
                         types.add(record.get("dataset", "Unknown"))
                         reasons.add(record.get("detection", record.get("rule", "Listed")))
                         
@@ -127,13 +137,16 @@ class handler(BaseHTTPRequestHandler):
                             try: expiries.add(datetime.datetime.fromtimestamp(int(e_ts)).strftime('%Y-%m-%d'))
                             except: pass
 
+                    status = "Listed" if active_results else "Clean"
+                    statusClass = "status-error" if active_results else "status-clean"
+
                     return {
                         "domain": target, 
-                        "score": all_results[0].get("rule", "-"), 
+                        "score": display_results[0].get("rule", "-"), 
                         "smtp": "-", 
                         "date": sorted(list(dates))[0] if dates else "-", 
-                        "status": "Listed", 
-                        "statusClass": "status-error",
+                        "status": status, 
+                        "statusClass": statusClass,
                         "type": ", ".join(sorted(list(types))),
                         "listed_date": ", ".join(sorted(list(dates))) if dates else "-",
                         "expiry_date": ", ".join(sorted(list(expiries))) if expiries else "-",
