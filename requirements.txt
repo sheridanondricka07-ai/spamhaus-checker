@@ -1,0 +1,2 @@
+# Python requirements for Vercel
+# This project uses only standard libraries, but this file is required for auto-detection.

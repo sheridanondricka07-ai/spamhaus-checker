@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spamhaus Reputation Checker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+    <div class="app-container">
+        
+        <header class="app-header">
+            <h1>Spamhaus Reputation Checker</h1>
+            <p>Check domain reputations or IP listing histories.</p>
+            
+            <div class="mode-toggles">
+                <button class="toggle-btn active" id="btn-domains">Domains</button>
+                <button class="toggle-btn" id="btn-ips">IP Addresses</button>
+            </div>
+        </header>
+
+        <main class="app-main">
+            
+            <div class="input-section">
+                <textarea id="target-input" placeholder="Enter domains here, one per line..." spellcheck="false">himado.in
+hltv.org
+hochi.news
+huaban.com
+index.hu</textarea>
+            </div>
+
+            <div class="action-buttons">
+                <button id="btn-check" class="btn btn-primary">
+                    <i data-lucide="loader-2" class="spin-icon hidden" id="check-spinner"></i>
+                    <span id="check-text">Checking...</span>
+                </button>
+                <button id="btn-clear" class="btn btn-secondary">
+                    <i data-lucide="trash-2"></i> Clear
+                </button>
+                <button id="btn-export" class="btn btn-success">
+                    <i data-lucide="download"></i> Export CSV
+                </button>
+            </div>
+
+            <div class="progress-section hidden" id="progress-container">
+                <div class="progress-header">
+                    <span>Processing...</span>
+                    <span id="progress-text">10 / 14</span>
+                </div>
+                <div class="progress-bar-bg">
+                    <div class="progress-bar-fill" id="progress-fill"></div>
+                </div>
+            </div>
+
+            <div class="results-section">
+                <div class="filter-container">
+                    <i data-lucide="filter" class="filter-icon"></i>
+                    <input type="text" id="filter-input" placeholder="Filter results...">
+                </div>
+
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>TARGET <i data-lucide="arrow-up-down" class="sort-icon"></i></th>
+                                <th class="col-score">SCORE <i data-lucide="arrow-up-down" class="sort-icon"></i></th>
+                                <th class="col-smtp">SMTP</th>
+                                <th class="col-type">TYPE</th>
+                                <th class="col-listed">LISTED</th>
+                                <th class="col-expiry">EXPIRES</th>
+                                <th class="col-reason">REASON</th>
+                                <th>STATUS</th>
+                            </tr>
+                        </thead>
+                        <tbody id="results-tbody">
+                            <!-- Rows injected by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <script src="script.js"></script>
+    <script>
+        lucide.createIcons();
+    </script>
+</body>
+</html>
