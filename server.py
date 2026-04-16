@@ -6,8 +6,12 @@ import urllib.error
 import traceback
 import os
 import datetime
+import time
 
 PORT = 8000
+
+# Global Token Cache to prevent login rate limits
+TOKEN_CACHE = {} 
 
 def load_accounts():
     if os.path.exists('config.json'):
@@ -19,8 +23,15 @@ def load_accounts():
     return []
 
 def obtain_token(account):
+    user = account.get("username", "")
+    now = time.time()
+    
+    # Return cached token if still valid (using 23h as buffer)
+    if user in TOKEN_CACHE and TOKEN_CACHE[user]["expires"] > now:
+        return TOKEN_CACHE[user]["token"]
+
     payload = json.dumps({
-        "username": account.get("username", ""),
+        "username": user,
         "password": account.get("password", ""),
         "realm": account.get("realm", "intel")
     }).encode('utf-8')
@@ -32,10 +43,13 @@ def obtain_token(account):
         req = urllib.request.Request(url, data=payload, method='POST')
         req.add_header('Content-Type', 'application/json')
         try:
-            with urllib.request.urlopen(req, timeout=5) as response:
+            with urllib.request.urlopen(req, timeout=10) as response:
                 if response.status == 200:
                     data = json.loads(response.read().decode('utf-8'))
-                    return data.get('token')
+                    token = data.get('token')
+                    if token:
+                        TOKEN_CACHE[user] = {"token": token, "expires": now + 82800}
+                        return token
         except:
             continue
     return None
@@ -44,6 +58,8 @@ def check_target(target, target_type):
     accounts = load_accounts()
     if not accounts:
         return {"domain": target, "score": "Config Error", "smtp": "-", "date": "-", "status": "Error", "statusClass": "status-error", "type": "-", "listed_date": "-", "expiry_date": "-", "reason": "-"}
+
+    now = time.time()
 
     for account in accounts:
         token = obtain_token(account)
@@ -66,17 +82,22 @@ def check_target(target, target_type):
                         all_results.extend(ds_data.get('results', []))
                 except urllib.error.HTTPError as e:
                     if e.code == 404: continue
-                    # For other errors, we might want to continue to next dataset or stop
+                    if e.code == 401: # Token might be expired, clear cache
+                        TOKEN_CACHE.pop(account.get("username"), None)
                     continue 
                 except:
                     continue
 
             if len(all_results) > 0:
-                import time
-                now = time.time()
-                
-                # Only consider records that haven't expired yet
-                active_results = [r for r in all_results if r.get("valid_until", 0) > now]
+                # Filter for truly active listings
+                active_results = []
+                for r in all_results:
+                    v_until = r.get("valid_until", 0)
+                    # If valid_until is missing or 0, some datasets might still be considered active.
+                    # However, if it's explicitly in the past, it's NOT active.
+                    if v_until > 0 and v_until < now:
+                        continue
+                    active_results.append(r)
                 
                 types = set()
                 reasons = set()
@@ -119,65 +140,67 @@ def check_target(target, target_type):
             else:
                 return {"domain": target, "score": "0", "smtp": "-", "date": "-", "status": "Clean", "statusClass": "status-clean", "type": "-", "listed_date": "-", "expiry_date": "-", "reason": "-"}
         else:
+            # Domain Check
             endpoint = f"https://api.spamhaus.org/api/intel/v2/byobject/domain/{target}"
+            req = urllib.request.Request(endpoint, method='GET')
+            req.add_header('Authorization', f'Bearer {token}')
             
-        req = urllib.request.Request(endpoint, method='GET')
-        req.add_header('Authorization', f'Bearer {token}')
-        
-        try:
-            with urllib.request.urlopen(req, timeout=5) as response:
-                resp_data = json.loads(response.read().decode('utf-8'))
-                
-                # Domain logic
-                score = str(resp_data.get('score', '-'))
-                val = resp_data.get('score', 0)
-                
-                smtp_score = "-"
-                if target_type == 'domains':
-                    try:
-                        dim_endpoint = f"https://api.spamhaus.org/api/intel/v2/byobject/domain/{target}/dimensions"
-                        dim_req = urllib.request.Request(dim_endpoint, method='GET')
-                        dim_req.add_header('Authorization', f'Bearer {token}')
-                        with urllib.request.urlopen(dim_req, timeout=3) as dim_res:
-                            dim_data = json.loads(dim_res.read().decode('utf-8'))
-                            smtp_score = str(dim_data.get('smtp', '-'))
-                    except:
-                        pass
+            try:
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    resp_data = json.loads(response.read().decode('utf-8'))
+                    
+                    # Domain logic
+                    score = str(resp_data.get('score', '-'))
+                    val = resp_data.get('score', 0)
+                    
+                    smtp_score = "-"
+                    if target_type == 'domains':
+                        try:
+                            dim_endpoint = f"https://api.spamhaus.org/api/intel/v2/byobject/domain/{target}/dimensions"
+                            dim_req = urllib.request.Request(dim_endpoint, method='GET')
+                            dim_req.add_header('Authorization', f'Bearer {token}')
+                            with urllib.request.urlopen(dim_req, timeout=3) as dim_res:
+                                dim_data = json.loads(dim_res.read().decode('utf-8'))
+                                smtp_score = str(dim_data.get('smtp', '-'))
+                        except:
+                            pass
 
-                status = "Clean"
-                statusClass = "status-clean"
-                if isinstance(val, (int, float)) and val < -5:
-                    status = "Listed"
-                    statusClass = "status-error"
-                    
-                last_seen = resp_data.get('last-seen', resp_data.get('created', None))
-                date_str = "-"
-                if last_seen:
-                    try:
-                        date_str = datetime.datetime.fromtimestamp(int(last_seen)).strftime('%Y-%m-%d')
-                    except:
-                        pass
-                    
-                return {
-                    "domain": target, 
-                    "score": score, 
-                    "smtp": smtp_score, 
-                    "date": date_str, 
-                    "status": status, 
-                    "statusClass": "status-clean",
-                    "type": "Domain",
-                    "listed_date": "-",
-                    "expiry_date": "-",
-                    "reason": "-"
-                }
-        except urllib.error.HTTPError as e:
-            if e.code == 404:
-                return {"domain": target, "score": "-", "smtp": "-", "date": "-", "status": "Not Found", "statusClass": "status-clean", "type": "-", "listed_date": "-", "expiry_date": "-", "reason": "-"}
-            elif e.code in [429, 403, 401]:
+                    status = "Clean"
+                    statusClass = "status-clean"
+                    if isinstance(val, (int, float)) and val < -5:
+                        status = "Listed"
+                        statusClass = "status-error"
+                        
+                    last_seen = resp_data.get('last-seen', resp_data.get('created', None))
+                    date_str = "-"
+                    if last_seen:
+                        try:
+                            date_str = datetime.datetime.fromtimestamp(int(last_seen)).strftime('%Y-%m-%d')
+                        except:
+                            pass
+                        
+                    return {
+                        "domain": target, 
+                        "score": score, 
+                        "smtp": smtp_score, 
+                        "date": date_str, 
+                        "status": status, 
+                        "statusClass": statusClass,
+                        "type": "Domain",
+                        "listed_date": "-",
+                        "expiry_date": "-",
+                        "reason": "-"
+                    }
+            except urllib.error.HTTPError as e:
+                if e.code == 404:
+                    return {"domain": target, "score": "-", "smtp": "-", "date": "-", "status": "Not Found", "statusClass": "status-clean", "type": "-", "listed_date": "-", "expiry_date": "-", "reason": "-"}
+                if e.code == 401:
+                    TOKEN_CACHE.pop(account.get("username"), None)
+                    continue
+                if e.code == 429: continue
+                return {"domain": target, "score": f"HTTP {e.code}", "smtp": "-", "date": "-", "status": "Error", "statusClass": "status-error", "type": "-", "listed_date": "-", "expiry_date": "-", "reason": "-"}
+            except Exception:
                 continue
-            return {"domain": target, "score": f"HTTP {e.code}", "smtp": "-", "date": "-", "status": "Error", "statusClass": "status-error", "type": "-", "listed_date": "-", "expiry_date": "-", "reason": "-"}
-        except Exception:
-            continue
             
     return {"domain": target, "score": "All Limits Reached", "smtp": "-", "date": "-", "status": "Error", "statusClass": "status-error", "type": "-", "listed_date": "-", "expiry_date": "-", "reason": "-"}
 

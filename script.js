@@ -142,7 +142,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- Core Logic ---
-    const CHUNK_SIZE = 5; // Send 5 targets per request for real-time results
+    const CHUNK_SIZE = 10; // Increased chunk size for better throughput now that tokens are cached
 
     function chunkArray(arr, size) {
         const chunks = [];

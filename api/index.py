@@ -5,6 +5,10 @@ import urllib.error
 import urllib.parse
 import os
 import datetime
+import time
+
+# Global Token Cache to prevent login rate limits
+TOKEN_CACHE = {}
 
 class handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
@@ -50,20 +54,31 @@ class handler(BaseHTTPRequestHandler):
         accounts_env = os.environ.get('SPAMHAUS_ACCOUNTS')
         if accounts_env:
             try:
-                return json.loads(accounts_env)
+                data = json.loads(accounts_env)
+                return data if isinstance(data, list) else [data]
             except:
                 pass
                 
         try:
             config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.json')
-            with open(config_path, 'r') as f:
-                return json.load(f)
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    data = json.load(f)
+                    return data if isinstance(data, list) else [data]
         except:
-            return []
+            pass
+        return []
 
     def obtain_token(self, account):
+        user = account.get('username')
+        now = time.time()
+        
+        # Return cached token if valid
+        if user in TOKEN_CACHE and TOKEN_CACHE[user]["expires"] > now:
+            return TOKEN_CACHE[user]["token"]
+
         body = json.dumps({
-            "username": account.get('username'),
+            "username": user,
             "password": account.get('password'),
             "realm": account.get('realm', 'intel')
         }).encode('utf-8')
@@ -72,9 +87,12 @@ class handler(BaseHTTPRequestHandler):
         req.add_header('Content-Type', 'application/json')
         
         try:
-            with urllib.request.urlopen(req, timeout=5) as response:
+            with urllib.request.urlopen(req, timeout=10) as response:
                 result = json.loads(response.read().decode('utf-8'))
-                return result.get('token')
+                token = result.get('token')
+                if token:
+                    TOKEN_CACHE[user] = {"token": token, "expires": now + 82800}
+                    return token
         except Exception:
             return None
 
@@ -83,13 +101,14 @@ class handler(BaseHTTPRequestHandler):
         if not accounts:
             return {"domain": target, "score": "Config Error", "smtp": "-", "date": "-", "status": "Error", "statusClass": "status-error", "type": "-", "listed_date": "-", "expiry_date": "-", "reason": "-"}
 
+        now = time.time()
+
         for account in accounts:
             token = self.obtain_token(account)
             if not token:
                 continue
                 
             if target_type == 'ips':
-                # Use ALL dataset for IPs to catch XBL, SBL, CSS, BCL + Explicit WAB
                 datasets = ['ALL', 'WAB']
                 all_results = []
                 
@@ -103,24 +122,25 @@ class handler(BaseHTTPRequestHandler):
                             all_results.extend(ds_data.get('results', []))
                     except urllib.error.HTTPError as e:
                         if e.code == 404: continue
+                        if e.code == 401: TOKEN_CACHE.pop(account.get('username'), None)
                         continue
                     except:
                         continue
                 
                 if len(all_results) > 0:
-                    import time
-                    now = time.time()
-                    
-                    # Only consider records that haven't expired yet
-                    active_results = [r for r in all_results if r.get("valid_until", 0) > now]
+                    # Filter active results robustly
+                    active_results = []
+                    for r in all_results:
+                        v_until = r.get("valid_until", 0)
+                        if v_until > 0 and v_until < now:
+                            continue
+                        active_results.append(r)
                     
                     types = set()
                     reasons = set()
                     dates = set()
                     expiries = set()
                     
-                    # Determine display records: if there are active ones, use only those.
-                    # If all are expired, we might still want to show the last known info but set status to Clean.
                     display_results = active_results if active_results else all_results
                     
                     for record in display_results:
@@ -155,7 +175,7 @@ class handler(BaseHTTPRequestHandler):
                 else:
                     return {"domain": target, "score": "0", "smtp": "-", "date": "-", "status": "Clean", "statusClass": "status-clean", "type": "-", "listed_date": "-", "expiry_date": "-", "reason": "-"}
             
-            # Domain logic starts here
+            # Domain Check
             endpoint = f"https://api.spamhaus.org/api/intel/v2/byobject/domain/{target}"
             req = urllib.request.Request(endpoint, method='GET')
             req.add_header('Authorization', f'Bearer {token}')
@@ -163,7 +183,6 @@ class handler(BaseHTTPRequestHandler):
             try:
                 with urllib.request.urlopen(req, timeout=5) as response:
                     data = json.loads(response.read().decode('utf-8'))
-                    
                     score = str(data.get('score', '-'))
                     val = data.get('score', 0)
                     
@@ -207,10 +226,11 @@ class handler(BaseHTTPRequestHandler):
             except urllib.error.HTTPError as e:
                 if e.code == 404:
                     return {"domain": target, "score": "-", "smtp": "-", "date": "-", "status": "Not Found", "statusClass": "status-clean", "type": "-", "listed_date": "-", "expiry_date": "-", "reason": "-"}
-                elif e.code in [429, 403, 401]:
+                if e.code == 401:
+                    TOKEN_CACHE.pop(account.get('username'), None)
                     continue
-                else:
-                    return {"domain": target, "score": f"HTTP {e.code}", "smtp": "-", "date": "-", "status": "Error", "statusClass": "status-error", "type": "-", "listed_date": "-", "expiry_date": "-", "reason": "-"}
+                if e.code == 429: continue
+                return {"domain": target, "score": f"HTTP {e.code}", "smtp": "-", "date": "-", "status": "Error", "statusClass": "status-error", "type": "-", "listed_date": "-", "expiry_date": "-", "reason": "-"}
             except Exception:
                 continue
 
