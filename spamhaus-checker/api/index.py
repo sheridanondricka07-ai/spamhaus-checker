@@ -27,14 +27,24 @@ GLOSSARY = {
     "SPAMBOT": "Infected devices/servers: Sending automated spam or serving as a proxy."
 }
 
-def enrich_reason(code):
+def enrich_reason(code, dataset=None):
     if not code or code == "-": return code
     code_upper = str(code).upper()
+    ds_upper = str(dataset).upper() if dataset else ""
+
+    # 1. Match the code itself
     if code_upper in GLOSSARY:
-        return GLOSSARY[code_upper]
+        return f"{code_upper}: {GLOSSARY[code_upper]}"
+    
+    # 2. Match if code contains a key (e.g. SBL in SBL-123)
     for k, v in GLOSSARY.items():
         if k in code_upper:
-            return v
+            return f"{code_upper}: {v}"
+            
+    # 3. Use dataset as fallback for context (e.g. for hex codes)
+    if ds_upper in GLOSSARY:
+        return f"{code_upper} ({ds_upper}): {GLOSSARY[ds_upper]}"
+        
     return code
 
 class handler(BaseHTTPRequestHandler):
@@ -197,7 +207,7 @@ class handler(BaseHTTPRequestHandler):
                         "type": ", ".join(sorted(list(types))),
                         "listed_date": ", ".join(sorted(list(dates))) if dates else "-",
                         "expiry_date": ", ".join(sorted(list(expiries))) if expiries else "-",
-                        "reason": " | ".join(sorted(list(set(enrich_reason(r) for r in reasons))))
+                        "reason": " | ".join(sorted(list(set(enrich_reason(r.get("detection", r.get("rule", "Listed")), r.get("dataset")) for r in display_results))))
                     }
                 else:
                     return {"domain": target, "score": "0", "smtp": "-", "date": "-", "status": "Clean", "statusClass": "status-clean", "type": "-", "listed_date": "-", "expiry_date": "-", "reason": "-"}

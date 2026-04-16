@@ -26,14 +26,24 @@ GLOSSARY = {
     "SPAMBOT": "Infected devices/servers: Sending automated spam or serving as a proxy."
 }
 
-def enrich_reason(code):
+def enrich_reason(code, dataset=None):
     if not code or code == "-": return code
     code_upper = str(code).upper()
+    ds_upper = str(dataset).upper() if dataset else ""
+
+    # 1. Match the code itself
     if code_upper in GLOSSARY:
-        return GLOSSARY[code_upper]
+        return f"{code_upper}: {GLOSSARY[code_upper]}"
+    
+    # 2. Match if code contains a key (e.g. SBL in SBL-123)
     for k, v in GLOSSARY.items():
         if k in code_upper:
-            return v
+            return f"{code_upper}: {v}"
+            
+    # 3. Use dataset as fallback for context (e.g. for hex codes)
+    if ds_upper in GLOSSARY:
+        return f"{code_upper} ({ds_upper}): {GLOSSARY[ds_upper]}"
+        
     return code
 
 # Try loading config
@@ -109,7 +119,7 @@ def check_target(target, target_type):
                     "date": record.get("listed", "-"),
                     "status": "Listed",
                     "statusClass": "status-error",
-                    "reason": enrich_reason(record.get("rule", "Listed")),
+                    "reason": enrich_reason(record.get("rule", "Listed"), record.get("dataset")),
                     "type": record.get("dataset", "IP")
                 }
             elif isinstance(data, list) and len(data) == 0:
