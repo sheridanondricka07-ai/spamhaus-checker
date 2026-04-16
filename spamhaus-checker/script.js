@@ -129,15 +129,47 @@ document.addEventListener('DOMContentLoaded', () => {
     btnCopy.addEventListener('click', () => {
         if (resultsData.length === 0) return;
         
+        const filterStatus = document.getElementById('copy-status-filter').value;
+        const minScore = parseFloat(document.getElementById('copy-min-score').value);
+        const maxScore = parseFloat(document.getElementById('copy-max-score').value);
+
+        let filtered = resultsData.filter(row => {
+            // Status filter
+            if (filterStatus !== 'both' && row.status !== filterStatus) return false;
+            
+            // Score range filter
+            const scoreNum = parseFloat(row.score);
+            if (!isNaN(scoreNum)) {
+                if (!isNaN(minScore) && scoreNum < minScore) return false;
+                if (!isNaN(maxScore) && scoreNum > maxScore) return false;
+            } else if (!isNaN(minScore) || !isNaN(maxScore)) {
+                // If a score range is requested but score is non-numeric, exclude it
+                return false;
+            }
+            
+            return true;
+        });
+
+        if (filtered.length === 0) {
+            const originalText = btnCopy.innerHTML;
+            btnCopy.innerHTML = '<i data-lucide="alert-circle"></i> No matches!';
+            lucide.createIcons();
+            setTimeout(() => {
+                btnCopy.innerHTML = originalText;
+                lucide.createIcons();
+            }, 2000);
+            return;
+        }
+
         // Format results as TAB separated text (similar to Excel copy/paste)
         let copyText = "TARGET\tSCORE\tSTATUS\tTYPE\tREASON\n";
-        resultsData.forEach(row => {
+        filtered.forEach(row => {
             copyText += `${row.domain}\t${row.score}\t${row.status}\t${row.type}\t${row.reason}\n`;
         });
         
         navigator.clipboard.writeText(copyText).then(() => {
             const originalText = btnCopy.innerHTML;
-            btnCopy.innerHTML = '<i data-lucide="check"></i> Copied!';
+            btnCopy.innerHTML = `<i data-lucide="check"></i> Copied ${filtered.length}!`;
             lucide.createIcons();
             setTimeout(() => {
                 btnCopy.innerHTML = originalText;

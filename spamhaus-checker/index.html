@@ -67,6 +67,25 @@ index.hu</textarea>
                     <input type="text" id="filter-input" placeholder="Filter results...">
                 </div>
 
+                <div class="copy-opts-container">
+                    <div class="copy-opt-group">
+                        <label>Copy Status:</label>
+                        <select id="copy-status-filter" class="custom-select">
+                            <option value="both">Both</option>
+                            <option value="Listed">Listed Only</option>
+                            <option value="Clean">Clean Only</option>
+                        </select>
+                    </div>
+                    <div class="copy-opt-group">
+                        <label>Score Range:</label>
+                        <div class="range-inputs">
+                            <input type="number" id="copy-min-score" placeholder="Min Score" step="0.01">
+                            <span class="range-sep">to</span>
+                            <input type="number" id="copy-max-score" placeholder="Max Score" step="0.01">
+                        </div>
+                    </div>
+                </div>
+
                 <div class="table-container">
                     <table>
                         <thead>
