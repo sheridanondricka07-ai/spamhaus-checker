@@ -9,6 +9,33 @@ import os
 PORT = 8000
 AUTH_TOKEN = None
 
+GLOSSARY = {
+    "CSS": "Combined Spam Sources: IPs exhibiting spam-sending behavior.",
+    "SS": "Snowshoe Spam: Spread-out spam techniques (often forms part of CSS/SBL).",
+    "XBL": "Exploits Block List: Hijacked IPs, infected devices, or botnets.",
+    "SBL": "Spamhaus Block List: Verified spam operations and spam support services.",
+    "PBL": "Policy Block List: End-user IP space that should not deliver unauthenticated SMTP email.",
+    "BCL": "Botnet Controller List: IPs identified as botnet Command & Control servers.",
+    "AUTHBL": "Authentication Blocklist: IPs brute-forcing SMTP/Auth protocols.",
+    "DROP": "Don't Route Or Peer: Leased/hijacked networks entirely controlled by cybercriminals.",
+    "DBL": "Domain Block List: Low reputation domains tied to phishing or spam.",
+    "ZRD": "Zero Reputation Domains: Newly minted/observed domains (under 24h old).",
+    "SPAM": "Detected bulk sending: Operations or spam trap hits.",
+    "WAB": "Weak Authentication Behavior: Missing SPF, DKIM, DMARC alignment.",
+    "LTB": "Low Trust Behavior: Suspicious activity not tied to bulk volume.",
+    "SPAMBOT": "Infected devices/servers: Sending automated spam or serving as a proxy."
+}
+
+def enrich_reason(code):
+    if not code or code == "-": return code
+    code_upper = str(code).upper()
+    if code_upper in GLOSSARY:
+        return GLOSSARY[code_upper]
+    for k, v in GLOSSARY.items():
+        if k in code_upper:
+            return v
+    return code
+
 # Try loading config
 CONFIG = {}
 if os.path.exists('config.json'):
@@ -81,7 +108,9 @@ def check_target(target, target_type):
                     "score": record.get("rule", "-"),
                     "date": record.get("listed", "-"),
                     "status": "Listed",
-                    "statusClass": "status-error"
+                    "statusClass": "status-error",
+                    "reason": enrich_reason(record.get("rule", "Listed")),
+                    "type": record.get("dataset", "IP")
                 }
             elif isinstance(data, list) and len(data) == 0:
                 return {
@@ -115,7 +144,9 @@ def check_target(target, target_type):
                 "score": score,
                 "date": date_str,
                 "status": status,
-                "statusClass": statusClass
+                "statusClass": statusClass,
+                "type": "Domain",
+                "reason": enrich_reason(score) if status == "Listed" else "-"
             }
     except urllib.error.HTTPError as e:
         if e.code == 404:
