@@ -28,24 +28,16 @@ GLOSSARY = {
 }
 
 def enrich_reason(code, dataset=None):
-    if not code or code == "-": return code
+    if not code or code == "-": 
+        return "-", "-"
     code_upper = str(code).upper()
     ds_upper = str(dataset).upper() if dataset else ""
 
-    # 1. Match the code itself
-    if code_upper in GLOSSARY:
-        return f"{code_upper}: {GLOSSARY[code_upper]}"
-    
-    # 2. Match if code contains a key (e.g. SBL in SBL-123)
     for k, v in GLOSSARY.items():
-        if k in code_upper:
-            return f"{code_upper}: {v}"
+        if k == code_upper or k == ds_upper or k in code_upper:
+            return k, f"{k}: {v}"
             
-    # 3. Use dataset as fallback for context (e.g. for hex codes)
-    if ds_upper in GLOSSARY:
-        return f"{code_upper} ({ds_upper}): {GLOSSARY[ds_upper]}"
-        
-    return code
+    return code, code
 
 class handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
@@ -197,6 +189,8 @@ class handler(BaseHTTPRequestHandler):
                     status = "Listed" if active_results else "Clean"
                     statusClass = "status-error" if active_results else "status-clean"
 
+                    res_list = [enrich_reason(r.get("detection", r.get("rule", "Listed")), r.get("dataset")) for r in display_results]
+                    
                     return {
                         "domain": target, 
                         "score": display_results[0].get("rule", "-"), 
@@ -207,7 +201,8 @@ class handler(BaseHTTPRequestHandler):
                         "type": ", ".join(sorted(list(types))),
                         "listed_date": ", ".join(sorted(list(dates))) if dates else "-",
                         "expiry_date": ", ".join(sorted(list(expiries))) if expiries else "-",
-                        "reason": " | ".join(sorted(list(set(enrich_reason(r.get("detection", r.get("rule", "Listed")), r.get("dataset")) for r in display_results))))
+                        "reason": " | ".join(sorted(list(set(r[0] for r in res_list)))),
+                        "reason_full": " | ".join(sorted(list(set(r[1] for r in res_list))))
                     }
                 else:
                     return {"domain": target, "score": "0", "smtp": "-", "date": "-", "status": "Clean", "statusClass": "status-clean", "type": "-", "listed_date": "-", "expiry_date": "-", "reason": "-"}
@@ -248,6 +243,7 @@ class handler(BaseHTTPRequestHandler):
                         except:
                             pass
                         
+                    r_short, r_full = enrich_reason(score) if status == "Listed" else ("-", "-")
                     return {
                         "domain": target, 
                         "score": score, 
@@ -258,7 +254,8 @@ class handler(BaseHTTPRequestHandler):
                         "type": "Domain",
                         "listed_date": "-",
                         "expiry_date": "-",
-                        "reason": enrich_reason(score) if status == "Listed" else "-"
+                        "reason": r_short,
+                        "reason_full": r_full
                     }
             except urllib.error.HTTPError as e:
                 if e.code == 404:

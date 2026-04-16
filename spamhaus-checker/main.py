@@ -27,24 +27,16 @@ GLOSSARY = {
 }
 
 def enrich_reason(code, dataset=None):
-    if not code or code == "-": return code
+    if not code or code == "-": 
+        return "-", "-"
     code_upper = str(code).upper()
     ds_upper = str(dataset).upper() if dataset else ""
 
-    # 1. Match the code itself
-    if code_upper in GLOSSARY:
-        return f"{code_upper}: {GLOSSARY[code_upper]}"
-    
-    # 2. Match if code contains a key (e.g. SBL in SBL-123)
     for k, v in GLOSSARY.items():
-        if k in code_upper:
-            return f"{code_upper}: {v}"
+        if k == code_upper or k == ds_upper or k in code_upper:
+            return k, f"{k}: {v}"
             
-    # 3. Use dataset as fallback for context (e.g. for hex codes)
-    if ds_upper in GLOSSARY:
-        return f"{code_upper} ({ds_upper}): {GLOSSARY[ds_upper]}"
-        
-    return code
+    return code, code
 
 # Try loading config
 CONFIG = {}
@@ -119,7 +111,8 @@ def check_target(target, target_type):
                     "date": record.get("listed", "-"),
                     "status": "Listed",
                     "statusClass": "status-error",
-                    "reason": enrich_reason(record.get("rule", "Listed"), record.get("dataset")),
+                    "reason": enrich_reason(record.get("rule", "Listed"), record.get("dataset"))[0],
+                    "reason_full": enrich_reason(record.get("rule", "Listed"), record.get("dataset"))[1],
                     "type": record.get("dataset", "IP")
                 }
             elif isinstance(data, list) and len(data) == 0:
@@ -156,7 +149,8 @@ def check_target(target, target_type):
                 "status": status,
                 "statusClass": statusClass,
                 "type": "Domain",
-                "reason": enrich_reason(score) if status == "Listed" else "-"
+                "reason": enrich_reason(score) if status == "Listed" else ("-", "-")[0],
+                "reason_full": enrich_reason(score) if status == "Listed" else ("-", "-")[1]
             }
     except urllib.error.HTTPError as e:
         if e.code == 404:
