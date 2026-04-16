@@ -204,9 +204,9 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        let copyText = "TARGET\tSCORE\tSTATUS\tTYPE\tREASON\n";
+        let copyText = "TARGET\tTYPE\tLISTED\tEXPIRES\tREASON\tSTATUS\n";
         filtered.forEach(row => {
-            copyText += `${row.domain}\t${row.score}\t${row.status}\t${row.type}\t${row.reason}\n`;
+            copyText += `${row.domain}\t${row.type}\t${row.listed_date}\t${row.expiry_date}\t${row.reason}\t${row.status}\n`;
         });
         
         navigator.clipboard.writeText(copyText).then(() => {
