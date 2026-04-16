@@ -1,0 +1,9 @@
+[project]
+name = "spamhaus-checker"
+version = "0.1.0"
+description = "Spamhaus Reputation Checker"
+dependencies = []
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
