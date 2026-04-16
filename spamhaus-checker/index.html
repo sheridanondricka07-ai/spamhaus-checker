@@ -63,8 +63,23 @@ index.hu</textarea>
 
             <div class="results-section">
                 <div class="filter-container">
-                    <i data-lucide="filter" class="filter-icon"></i>
-                    <input type="text" id="filter-input" placeholder="Filter results...">
+                    <div class="search-box">
+                        <i data-lucide="filter" class="filter-icon"></i>
+                        <input type="text" id="filter-input" placeholder="Search targets...">
+                    </div>
+                    <div class="type-filter-box">
+                        <select id="type-filter" class="custom-select">
+                            <option value="all">All Types</option>
+                            <option value="SBL">SBL</option>
+                            <option value="XBL">XBL</option>
+                            <option value="PBL">PBL</option>
+                            <option value="CSS">CSS</option>
+                            <option value="BCL">BCL</option>
+                            <option value="WAB">WAB</option>
+                            <option value="AuthBL">AuthBL</option>
+                            <option value="DROP">DROP</option>
+                        </select>
+                    </div>
                 </div>
 
                 <div class="copy-opts-container">

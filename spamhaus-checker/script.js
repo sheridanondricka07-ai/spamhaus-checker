@@ -22,12 +22,34 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const resultsTbody = document.getElementById('results-tbody');
     const filterInput = document.getElementById('filter-input');
+    const typeFilter = document.getElementById('type-filter');
+    const typeFilterBox = document.querySelector('.type-filter-box');
 
     // --- State ---
     let currentMode = 'domains'; // 'domains' | 'ips'
     let isChecking = false;
     let checkAbortController = null;
     let resultsData = []; // Store raw results for sorting/filtering
+
+    // --- Filter Logic ---
+    function filterTable() {
+        const query = filterInput.value.toLowerCase();
+        const category = typeFilter.value;
+        
+        Array.from(resultsTbody.querySelectorAll('tr')).forEach(row => {
+            const targetText = row.querySelector('td:first-child').textContent.toLowerCase();
+            const typeText = row.querySelector('.col-type').textContent.trim();
+
+            const matchesSearch = targetText.includes(query);
+            const matchesType = (category === 'all' || typeText.includes(category));
+
+            if (matchesSearch && matchesType) {
+                row.classList.remove('hidden');
+            } else {
+                row.classList.add('hidden');
+            }
+        });
+    }
 
     // --- Event Listeners ---
 
@@ -41,6 +63,7 @@ document.addEventListener('DOMContentLoaded', () => {
         appContainer.classList.remove('mode-ips');
         targetInput.placeholder = "Enter domains here, one per line...";
         document.getElementById('score-filter-group').classList.remove('hidden');
+        typeFilterBox.classList.add('hidden');
     });
 
     btnIps.addEventListener('click', () => {
@@ -52,30 +75,12 @@ document.addEventListener('DOMContentLoaded', () => {
         appContainer.classList.remove('mode-domains');
         targetInput.placeholder = "Enter IP addresses here, one per line...";
         document.getElementById('score-filter-group').classList.add('hidden');
+        typeFilterBox.classList.remove('hidden');
     });
 
-    // Clear
-    btnClear.addEventListener('click', () => {
-        if(isChecking) return;
-        targetInput.value = '';
-        resultsTbody.innerHTML = '';
-        progressContainer.classList.add('hidden');
-        resultsData = [];
-        filterInput.value = '';
-    });
-
-    // Filter
-    filterInput.addEventListener('input', (e) => {
-        const query = e.target.value.toLowerCase();
-        Array.from(resultsTbody.querySelectorAll('tr')).forEach(row => {
-            const domainCellText = row.querySelector('td:first-child').textContent.toLowerCase();
-            if (domainCellText.includes(query)) {
-                row.classList.remove('hidden');
-            } else {
-                row.classList.add('hidden');
-            }
-        });
-    });
+    // Event hooks for real-time filtering
+    filterInput.addEventListener('input', filterTable);
+    typeFilter.addEventListener('change', filterTable);
 
     const btnCopy = document.getElementById('btn-copy');
     

@@ -186,18 +186,27 @@ body {
 }
 
 .filter-container {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.search-box {
+    flex: 1;
     position: relative;
-    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    min-width: 250px;
 }
 
 .filter-icon {
     position: absolute;
     left: 1rem;
-    top: 50%;
-    transform: translateY(-50%);
     color: var(--text-muted);
-    width: 16px;
-    height: 16px;
+    width: 18px;
+    height: 18px;
 }
 
 #filter-input {
@@ -205,12 +214,15 @@ body {
     background-color: var(--bg-input);
     border: 1px solid var(--border-color);
     border-radius: 8px;
-    padding: 0.75rem 1rem 0.75rem 2.5rem;
+    padding: 0.8rem 1rem 0.8rem 3rem;
     color: var(--text-primary);
-    font-family: inherit;
-    font-size: 0.875rem;
+    font-size: 1rem;
     outline: none;
-    transition: border-color 0.2s;
+    transition: all 0.2s ease;
+}
+
+.type-filter-box {
+    min-width: 150px;
 }
 
 #filter-input:focus {
