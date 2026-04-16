@@ -40,6 +40,7 @@ document.addEventListener('DOMContentLoaded', () => {
         appContainer.classList.add('mode-domains');
         appContainer.classList.remove('mode-ips');
         targetInput.placeholder = "Enter domains here, one per line...";
+        document.getElementById('score-filter-group').classList.remove('hidden');
     });
 
     btnIps.addEventListener('click', () => {
@@ -50,6 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
         appContainer.classList.add('mode-ips');
         appContainer.classList.remove('mode-domains');
         targetInput.placeholder = "Enter IP addresses here, one per line...";
+        document.getElementById('score-filter-group').classList.add('hidden');
     });
 
     // Clear
