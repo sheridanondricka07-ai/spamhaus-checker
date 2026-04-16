@@ -296,9 +296,6 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const tdReason = document.createElement('td');
         tdReason.textContent = result.reason || "-";
-        if (result.reason_full && result.reason_full !== "-") {
-            tdReason.title = result.reason_full;
-        }
         tdReason.classList.add('reason-cell', 'col-reason');
         
         const tdStatus = document.createElement('td');

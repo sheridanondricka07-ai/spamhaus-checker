@@ -198,11 +198,10 @@ class handler(BaseHTTPRequestHandler):
                         "date": sorted(list(dates))[0] if dates else "-", 
                         "status": status, 
                         "statusClass": statusClass,
-                        "type": ", ".join(sorted(list(types))),
+                        "type": ", ".join(sorted(list(set(r[0] for r in res_list)))),
                         "listed_date": ", ".join(sorted(list(dates))) if dates else "-",
                         "expiry_date": ", ".join(sorted(list(expiries))) if expiries else "-",
-                        "reason": " | ".join(sorted(list(set(r[0] for r in res_list)))),
-                        "reason_full": " | ".join(sorted(list(set(r[1] for r in res_list))))
+                        "reason": " | ".join(sorted(list(set(r[1] for r in res_list))))
                     }
                 else:
                     return {"domain": target, "score": "0", "smtp": "-", "date": "-", "status": "Clean", "statusClass": "status-clean", "type": "-", "listed_date": "-", "expiry_date": "-", "reason": "-"}
@@ -251,11 +250,10 @@ class handler(BaseHTTPRequestHandler):
                         "date": date_str, 
                         "status": status, 
                         "statusClass": statusClass,
-                        "type": "Domain",
+                        "type": r_short,
                         "listed_date": "-",
                         "expiry_date": "-",
-                        "reason": r_short,
-                        "reason_full": r_full
+                        "reason": r_full
                     }
             except urllib.error.HTTPError as e:
                 if e.code == 404:

@@ -111,9 +111,8 @@ def check_target(target, target_type):
                     "date": record.get("listed", "-"),
                     "status": "Listed",
                     "statusClass": "status-error",
-                    "reason": enrich_reason(record.get("rule", "Listed"), record.get("dataset"))[0],
-                    "reason_full": enrich_reason(record.get("rule", "Listed"), record.get("dataset"))[1],
-                    "type": record.get("dataset", "IP")
+                    "reason": enrich_reason(record.get("rule", "Listed"), record.get("dataset"))[1],
+                    "type": enrich_reason(record.get("rule", "Listed"), record.get("dataset"))[0]
                 }
             elif isinstance(data, list) and len(data) == 0:
                 return {
@@ -148,9 +147,8 @@ def check_target(target, target_type):
                 "date": date_str,
                 "status": status,
                 "statusClass": statusClass,
-                "type": "Domain",
-                "reason": enrich_reason(score) if status == "Listed" else ("-", "-")[0],
-                "reason_full": enrich_reason(score) if status == "Listed" else ("-", "-")[1]
+                "type": enrich_reason(score) if status == "Listed" else "-",
+                "reason": enrich_reason(score) if status == "Listed" else "-"
             }
     except urllib.error.HTTPError as e:
         if e.code == 404:
