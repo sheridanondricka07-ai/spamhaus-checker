@@ -62,41 +62,37 @@ index.hu</textarea>
             </div>
 
             <div class="results-section">
-                <div class="filter-container">
-                    <div class="search-box">
-                        <i data-lucide="filter" class="filter-icon"></i>
-                        <input type="text" id="filter-input" placeholder="Search targets...">
+                <div class="results-controls">
+                    <div class="control-group">
+                        <label>Status Filter:</label>
+                        <div class="filter-btn-group" id="status-filters">
+                            <button class="filter-btn active" data-value="all">All</button>
+                            <button class="filter-btn" data-value="Clean">Clean</button>
+                            <button class="filter-btn" data-value="Listed">Listed</button>
+                        </div>
                     </div>
-                    <div class="type-filter-box">
-                        <select id="type-filter" class="custom-select">
-                            <option value="all">All Types</option>
-                            <option value="SBL">SBL</option>
-                            <option value="XBL">XBL</option>
-                            <option value="PBL">PBL</option>
-                            <option value="CSS">CSS</option>
-                            <option value="BCL">BCL</option>
-                            <option value="WAB">WAB</option>
-                            <option value="AuthBL">AuthBL</option>
-                            <option value="DROP">DROP</option>
-                        </select>
-                    </div>
-                </div>
 
-                <div class="copy-opts-container">
-                    <div class="copy-opt-group">
-                        <label>Copy Status:</label>
-                        <select id="copy-status-filter" class="custom-select">
-                            <option value="both">Both</option>
-                            <option value="Listed">Listed Only</option>
-                            <option value="Clean">Clean Only</option>
-                        </select>
+                    <div class="control-group" id="type-filter-group">
+                        <label>List Type:</label>
+                        <div class="filter-btn-group" id="type-filters">
+                            <button class="filter-btn active" data-value="all">All</button>
+                            <button class="filter-btn" data-value="SBL">SBL</button>
+                            <button class="filter-btn" data-value="XBL">XBL</button>
+                            <button class="filter-btn" data-value="PBL">PBL</button>
+                            <button class="filter-btn" data-value="CSS">CSS</button>
+                            <button class="filter-btn" data-value="BCL">BCL</button>
+                            <button class="filter-btn" data-value="WAB">WAB</button>
+                            <button class="filter-btn" data-value="AUTHBL">AuthBL</button>
+                            <button class="filter-btn" data-value="DROP">DROP</button>
+                        </div>
                     </div>
-                    <div class="copy-opt-group" id="score-filter-group">
+
+                    <div class="control-group" id="score-filter-group">
                         <label>Score Range:</label>
                         <div class="range-inputs">
-                            <input type="number" id="copy-min-score" placeholder="Min Score" step="0.01">
-                            <span class="range-sep">to</span>
-                            <input type="number" id="copy-max-score" placeholder="Max Score" step="0.01">
+                            <input type="number" id="copy-min-score" placeholder="Min" step="0.1">
+                            <span class="range-sep">-</span>
+                            <input type="number" id="copy-max-score" placeholder="Max" step="0.1">
                         </div>
                     </div>
                 </div>

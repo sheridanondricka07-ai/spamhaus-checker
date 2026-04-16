@@ -185,69 +185,24 @@ body {
     margin-top: 1.5rem;
 }
 
-.filter-container {
-    display: flex;
-    gap: 1rem;
+.results-controls {
+    background-color: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 1.5rem;
     margin-bottom: 1.5rem;
-    align-items: center;
-    flex-wrap: wrap;
-}
-
-.search-box {
-    flex: 1;
-    position: relative;
     display: flex;
-    align-items: center;
-    min-width: 250px;
+    flex-direction: column;
+    gap: 1.25rem;
 }
 
-.filter-icon {
-    position: absolute;
-    left: 1rem;
-    color: var(--text-muted);
-    width: 18px;
-    height: 18px;
-}
-
-#filter-input {
-    width: 100%;
-    background-color: var(--bg-input);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    padding: 0.8rem 1rem 0.8rem 3rem;
-    color: var(--text-primary);
-    font-size: 1rem;
-    outline: none;
-    transition: all 0.2s ease;
-}
-
-.type-filter-box {
-    min-width: 150px;
-}
-
-#filter-input:focus {
-    border-color: var(--btn-primary);
-}
-
-.copy-opts-container {
-    background-color: rgba(255, 255, 255, 0.03);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    padding: 1rem;
-    margin-bottom: 1rem;
+.control-group {
     display: flex;
-    gap: 2rem;
-    align-items: center;
-    flex-wrap: wrap;
-}
-
-.copy-opt-group {
-    display: flex;
-    align-items: center;
+    flex-direction: column;
     gap: 0.75rem;
 }
 
-.copy-opt-group label {
+.control-group label {
     font-size: 0.75rem;
     font-weight: 700;
     text-transform: uppercase;
@@ -255,16 +210,34 @@ body {
     letter-spacing: 0.05em;
 }
 
-.custom-select {
-    background-color: var(--bg-input);
+.filter-btn-group {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.filter-btn {
+    background: var(--bg-input);
     border: 1px solid var(--border-color);
     border-radius: 6px;
-    color: var(--text-primary);
     padding: 0.5rem 1rem;
-    font-family: inherit;
-    font-size: 0.875rem;
-    outline: none;
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+    font-weight: 500;
     cursor: pointer;
+    transition: all 0.2s var(--transition-bounce);
+}
+
+.filter-btn:hover {
+    border-color: var(--btn-primary);
+    color: var(--text-primary);
+}
+
+.filter-btn.active {
+    background-color: var(--btn-primary);
+    border-color: var(--btn-primary);
+    color: white;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
 }
 
 .range-inputs {

@@ -21,35 +21,71 @@ document.addEventListener('DOMContentLoaded', () => {
     const progressFill = document.getElementById('progress-fill');
     
     const resultsTbody = document.getElementById('results-tbody');
-    const filterInput = document.getElementById('filter-input');
-    const typeFilter = document.getElementById('type-filter');
-    const typeFilterBox = document.querySelector('.type-filter-box');
+    const statusFilters = document.getElementById('status-filters');
+    const typeFilters = document.getElementById('type-filters');
+    const typeFilterGroup = document.getElementById('type-filter-group');
+    const minScoreInput = document.getElementById('copy-min-score');
+    const maxScoreInput = document.getElementById('copy-max-score');
 
     // --- State ---
     let currentMode = 'domains'; // 'domains' | 'ips'
     let isChecking = false;
     let checkAbortController = null;
     let resultsData = []; // Store raw results for sorting/filtering
+    let activeStatus = 'all';
+    let activeType = 'all';
 
     // --- Filter Logic ---
     function filterTable() {
-        const query = filterInput.value.toLowerCase();
-        const category = typeFilter.value;
+        const minScore = parseFloat(minScoreInput.value);
+        const maxScore = parseFloat(maxScoreInput.value);
         
         Array.from(resultsTbody.querySelectorAll('tr')).forEach(row => {
-            const targetText = row.querySelector('td:first-child').textContent.toLowerCase();
-            const typeText = row.querySelector('.col-type').textContent.trim();
+            const rowId = row.getAttribute('data-id');
+            const data = resultsData.find(d => d.tempId === rowId);
+            if (!data) return;
 
-            const matchesSearch = targetText.includes(query);
-            const matchesType = (category === 'all' || typeText.includes(category));
+            // Status match
+            const matchesStatus = (activeStatus === 'all' || data.status === activeStatus);
+            
+            // Type match
+            const matchesType = (activeType === 'all' || (data.type && data.type.includes(activeType)));
 
-            if (matchesSearch && matchesType) {
+            // Score match
+            let matchesScore = true;
+            const scoreNum = parseFloat(data.score);
+            if (!isNaN(scoreNum)) {
+                if (!isNaN(minScore) && scoreNum < minScore) matchesScore = false;
+                if (!isNaN(maxScore) && scoreNum > maxScore) matchesScore = false;
+            } else if (!isNaN(minScore) || !isNaN(maxScore)) {
+                matchesScore = false;
+            }
+
+            if (matchesStatus && matchesType && matchesScore) {
                 row.classList.remove('hidden');
             } else {
                 row.classList.add('hidden');
             }
         });
     }
+
+    // Initialize Button Groups
+    function initFilterGroup(containerId, callback) {
+        const container = document.getElementById(containerId);
+        container.addEventListener('click', (e) => {
+            const btn = e.target.closest('.filter-btn');
+            if (!btn) return;
+            
+            container.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            callback(btn.getAttribute('data-value'));
+            filterTable();
+        });
+    }
+
+    initFilterGroup('status-filters', (val) => { activeStatus = val; });
+    initFilterGroup('type-filters', (val) => { activeType = val; });
+    [minScoreInput, maxScoreInput].forEach(inp => inp.addEventListener('input', filterTable));
 
     // --- Event Listeners ---
 
@@ -63,7 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
         appContainer.classList.remove('mode-ips');
         targetInput.placeholder = "Enter domains here, one per line...";
         document.getElementById('score-filter-group').classList.remove('hidden');
-        typeFilterBox.classList.add('hidden');
+        typeFilterGroup.classList.add('hidden');
     });
 
     btnIps.addEventListener('click', () => {
@@ -75,22 +111,24 @@ document.addEventListener('DOMContentLoaded', () => {
         appContainer.classList.remove('mode-domains');
         targetInput.placeholder = "Enter IP addresses here, one per line...";
         document.getElementById('score-filter-group').classList.add('hidden');
-        typeFilterBox.classList.remove('hidden');
+        typeFilterGroup.classList.remove('hidden');
     });
 
-    // Event hooks for real-time filtering
-    filterInput.addEventListener('input', filterTable);
-    typeFilter.addEventListener('change', filterTable);
+    // Clear
+    btnClear.addEventListener('click', () => {
+        if(isChecking) return;
+        targetInput.value = '';
+        resultsTbody.innerHTML = '';
+        progressContainer.classList.add('hidden');
+        resultsData = [];
+    });
 
     const btnCopy = document.getElementById('btn-copy');
     
     // Check Action
     btnCheck.addEventListener('click', async () => {
         if (isChecking) {
-            // Cancel operation
-            if (checkAbortController) {
-                checkAbortController.abort();
-            }
+            if (checkAbortController) checkAbortController.abort();
             return;
         }
 
@@ -101,7 +139,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (targets.length === 0) return;
 
-        // Start checking UI state
         isChecking = true;
         checkAbortController = new AbortController();
         
@@ -113,17 +150,14 @@ document.addEventListener('DOMContentLoaded', () => {
         progressContainer.classList.remove('hidden');
         progressFill.style.width = '0%';
         progressText.textContent = `0 / ${targets.length}`;
-        resultsTbody.innerHTML = ''; // reset table
+        resultsTbody.innerHTML = '';
         resultsData = [];
 
         try {
             await processTargets(targets, checkAbortController.signal);
         } catch (err) {
-            if (err.name !== 'AbortError') {
-                console.error("Checking error:", err);
-            }
+            if (err.name !== 'AbortError') console.error("Checking error:", err);
         } finally {
-            // Reset UI state
             isChecking = false;
             checkSpinner.classList.add('hidden');
             checkSpinner.classList.remove('spin');
@@ -136,25 +170,27 @@ document.addEventListener('DOMContentLoaded', () => {
     btnCopy.addEventListener('click', () => {
         if (resultsData.length === 0) return;
         
-        const filterStatus = document.getElementById('copy-status-filter').value;
-        const minScore = parseFloat(document.getElementById('copy-min-score').value);
-        const maxScore = parseFloat(document.getElementById('copy-max-score').value);
+        const minScore = parseFloat(minScoreInput.value);
+        const maxScore = parseFloat(maxScoreInput.value);
 
-        let filtered = resultsData.filter(row => {
-            // Status filter
-            if (filterStatus !== 'both' && row.status !== filterStatus) return false;
+        let filtered = resultsData.filter(data => {
+            // Status match
+            const matchesStatus = (activeStatus === 'all' || data.status === activeStatus);
             
-            // Score range filter
-            const scoreNum = parseFloat(row.score);
+            // Type match
+            const matchesType = (activeType === 'all' || (data.type && data.type.includes(activeType)));
+
+            // Score match
+            let matchesScore = true;
+            const scoreNum = parseFloat(data.score);
             if (!isNaN(scoreNum)) {
-                if (!isNaN(minScore) && scoreNum < minScore) return false;
-                if (!isNaN(maxScore) && scoreNum > maxScore) return false;
+                if (!isNaN(minScore) && scoreNum < minScore) matchesScore = false;
+                if (!isNaN(maxScore) && scoreNum > maxScore) matchesScore = false;
             } else if (!isNaN(minScore) || !isNaN(maxScore)) {
-                // If a score range is requested but score is non-numeric, exclude it
-                return false;
+                matchesScore = false;
             }
             
-            return true;
+            return matchesStatus && matchesType && matchesScore;
         });
 
         if (filtered.length === 0) {
@@ -168,7 +204,6 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Format results as TAB separated text (similar to Excel copy/paste)
         let copyText = "TARGET\tSCORE\tSTATUS\tTYPE\tREASON\n";
         filtered.forEach(row => {
             copyText += `${row.domain}\t${row.score}\t${row.status}\t${row.type}\t${row.reason}\n`;
@@ -232,9 +267,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
 
                 if (!response.ok) {
-                    // Mark all in chunk as error and continue
                     chunk.forEach(t => {
-                        const errResult = { domain: t, score: `HTTP ${response.status}`, smtp: "-", date: "-", type: "-", listed_date: "-", expiry_date: "-", reason: "-", status: "Error", statusClass: "status-error" };
+                        const tempId = Math.random().toString(36).substr(2, 9);
+                        const errResult = { tempId, domain: t, score: `HTTP ${response.status}`, smtp: "-", date: "-", type: "-", listed_date: "-", expiry_date: "-", reason: "-", status: "Error", statusClass: "status-error" };
                         resultsData.push(errResult);
                         appendResultRow(errResult);
                     });
@@ -249,20 +284,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 for (const result of results) {
                     if (signal.aborted) throw new DOMException("Aborted", 'AbortError');
+                    result.tempId = Math.random().toString(36).substr(2, 9);
                     resultsData.push(result);
                     appendResultRow(result);
                     processed++;
                     progressText.textContent = `${processed} / ${targets.length}`;
                     progressFill.style.width = `${(processed / targets.length) * 100}%`;
-                    // Tiny yield to let browser paint the new row
                     await new Promise(r => setTimeout(r, 20));
                 }
 
             } catch (err) {
                 if (err.name === 'AbortError') throw err;
-                // Network error for this chunk — mark all as error and keep going
                 chunk.forEach(t => {
-                    const errResult = { domain: t, score: "Net Err", smtp: "-", date: "-", type: "-", listed_date: "-", expiry_date: "-", reason: "-", status: "Error", statusClass: "status-error" };
+                    const tempId = Math.random().toString(36).substr(2, 9);
+                    const errResult = { tempId, domain: t, score: "Net Err", smtp: "-", date: "-", type: "-", listed_date: "-", expiry_date: "-", reason: "-", status: "Error", statusClass: "status-error" };
                     resultsData.push(errResult);
                     appendResultRow(errResult);
                 });
@@ -275,6 +310,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function appendResultRow(result) {
         const tr = document.createElement('tr');
+        tr.setAttribute('data-id', result.tempId);
         
         const tdDomain = document.createElement('td');
         tdDomain.textContent = result.domain;
