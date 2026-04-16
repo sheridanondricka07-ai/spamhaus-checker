@@ -75,6 +75,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    const btnCopy = document.getElementById('btn-copy');
+    
     // Check Action
     btnCheck.addEventListener('click', async () => {
         if (isChecking) {
@@ -121,6 +123,29 @@ document.addEventListener('DOMContentLoaded', () => {
             checkText.textContent = "Check Domains/IPs";
             checkAbortController = null;
         }
+    });
+
+    // Copy Results
+    btnCopy.addEventListener('click', () => {
+        if (resultsData.length === 0) return;
+        
+        // Format results as TAB separated text (similar to Excel copy/paste)
+        let copyText = "TARGET\tSCORE\tSTATUS\tTYPE\tREASON\n";
+        resultsData.forEach(row => {
+            copyText += `${row.domain}\t${row.score}\t${row.status}\t${row.type}\t${row.reason}\n`;
+        });
+        
+        navigator.clipboard.writeText(copyText).then(() => {
+            const originalText = btnCopy.innerHTML;
+            btnCopy.innerHTML = '<i data-lucide="check"></i> Copied!';
+            lucide.createIcons();
+            setTimeout(() => {
+                btnCopy.innerHTML = originalText;
+                lucide.createIcons();
+            }, 2000);
+        }).catch(err => {
+            console.error('Failed to copy: ', err);
+        });
     });
 
     // Export CSV
