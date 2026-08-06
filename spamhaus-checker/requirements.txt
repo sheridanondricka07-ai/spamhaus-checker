@@ -1,2 +1,2 @@
-# Python requirements for Vercel
-# This project uses only standard libraries, but this file is required for auto-detection.
+dnspython>=2.6.0
+python-whois>=0.9.0

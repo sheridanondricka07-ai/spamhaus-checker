@@ -3,15 +3,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnDomains = document.getElementById('btn-domains');
     const btnIps = document.getElementById('btn-ips');
     const targetInput = document.getElementById('target-input');
-    const appContainer = document.querySelector('.app-container');
-    
-    // Initialize container mode
-    appContainer.classList.add('mode-domains');
     
     const btnCheck = document.getElementById('btn-check');
     const checkSpinner = document.getElementById('check-spinner');
     const checkText = document.getElementById('check-text');
-    checkText.textContent = "Check Domains/IPs"; // Initial state
+    checkText.textContent = "Check Domains/IPs";
     
     const btnClear = document.getElementById('btn-clear');
     const btnExport = document.getElementById('btn-export');
@@ -21,71 +17,26 @@ document.addEventListener('DOMContentLoaded', () => {
     const progressFill = document.getElementById('progress-fill');
     
     const resultsTbody = document.getElementById('results-tbody');
-    const statusFilters = document.getElementById('status-filters');
-    const typeFilters = document.getElementById('type-filters');
-    const typeFilterGroup = document.getElementById('type-filter-group');
-    const minScoreInput = document.getElementById('copy-min-score');
-    const maxScoreInput = document.getElementById('copy-max-score');
+    
+    const statusBtns = document.querySelectorAll('.status-btn');
+    const scoreMin = document.getElementById('score-min');
+    const scoreMax = document.getElementById('score-max');
+    let currentStatusFilter = 'All';
+    let currentGradeFilter = 'All';
+    const gradeBtns = document.querySelectorAll('.grade-btn');
+
+    // Modal
+    const modalOverlay = document.getElementById('modal-overlay');
+    const modalContainer = document.getElementById('modal-container');
+    const modalClose = document.getElementById('modal-close');
+    const modalDomainTitle = document.getElementById('modal-domain-title');
+    const modalBody = document.getElementById('modal-body');
 
     // --- State ---
-    let currentMode = 'domains'; // 'domains' | 'ips'
+    let currentMode = 'domains';
     let isChecking = false;
     let checkAbortController = null;
-    let resultsData = []; // Store raw results for sorting/filtering
-    let activeStatus = 'all';
-    let activeType = 'all';
-
-    // --- Filter Logic ---
-    function filterTable() {
-        const minScore = parseFloat(minScoreInput.value);
-        const maxScore = parseFloat(maxScoreInput.value);
-        
-        Array.from(resultsTbody.querySelectorAll('tr')).forEach(row => {
-            const rowId = row.getAttribute('data-id');
-            const data = resultsData.find(d => d.tempId === rowId);
-            if (!data) return;
-
-            // Status match
-            const matchesStatus = (activeStatus === 'all' || data.status === activeStatus);
-            
-            // Type match
-            const matchesType = (activeType === 'all' || (data.type && data.type.includes(activeType)));
-
-            // Score match
-            let matchesScore = true;
-            const scoreNum = parseFloat(data.score);
-            if (!isNaN(scoreNum)) {
-                if (!isNaN(minScore) && scoreNum < minScore) matchesScore = false;
-                if (!isNaN(maxScore) && scoreNum > maxScore) matchesScore = false;
-            } else if (!isNaN(minScore) || !isNaN(maxScore)) {
-                matchesScore = false;
-            }
-
-            if (matchesStatus && matchesType && matchesScore) {
-                row.classList.remove('hidden');
-            } else {
-                row.classList.add('hidden');
-            }
-        });
-    }
-
-    // Initialize Button Groups
-    function initFilterGroup(containerId, callback) {
-        const container = document.getElementById(containerId);
-        container.addEventListener('click', (e) => {
-            const btn = e.target.closest('.filter-btn');
-            if (!btn) return;
-            
-            container.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            callback(btn.getAttribute('data-value'));
-            filterTable();
-        });
-    }
-
-    initFilterGroup('status-filters', (val) => { activeStatus = val; });
-    initFilterGroup('type-filters', (val) => { activeType = val; });
-    [minScoreInput, maxScoreInput].forEach(inp => inp.addEventListener('input', filterTable));
+    let resultsData = [];
 
     // --- Event Listeners ---
 
@@ -95,11 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
         currentMode = 'domains';
         btnDomains.classList.add('active');
         btnIps.classList.remove('active');
-        appContainer.classList.add('mode-domains');
-        appContainer.classList.remove('mode-ips');
         targetInput.placeholder = "Enter domains here, one per line...";
-        document.getElementById('score-filter-group').classList.remove('hidden');
-        typeFilterGroup.classList.add('hidden');
     });
 
     btnIps.addEventListener('click', () => {
@@ -107,11 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
         currentMode = 'ips';
         btnIps.classList.add('active');
         btnDomains.classList.remove('active');
-        appContainer.classList.add('mode-ips');
-        appContainer.classList.remove('mode-domains');
         targetInput.placeholder = "Enter IP addresses here, one per line...";
-        document.getElementById('score-filter-group').classList.add('hidden');
-        typeFilterGroup.classList.remove('hidden');
     });
 
     // Clear
@@ -121,14 +64,264 @@ document.addEventListener('DOMContentLoaded', () => {
         resultsTbody.innerHTML = '';
         progressContainer.classList.add('hidden');
         resultsData = [];
+        scoreMin.value = '';
+        scoreMax.value = '';
+        currentStatusFilter = 'All';
+        currentGradeFilter = 'All';
+        statusBtns.forEach(b => {
+            b.classList.toggle('active', b.dataset.status === 'All');
+        });
+        gradeBtns.forEach(b => {
+            b.classList.toggle('active', b.dataset.grade === 'All');
+        });
     });
 
-    const btnCopy = document.getElementById('btn-copy');
-    
+    // Status Filter
+    statusBtns.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            statusBtns.forEach(b => b.classList.remove('active'));
+            e.target.classList.add('active');
+            currentStatusFilter = e.target.dataset.status;
+            applyFilters();
+        });
+    });
+
+    // Grade Filter
+    gradeBtns.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            gradeBtns.forEach(b => b.classList.remove('active'));
+            e.target.classList.add('active');
+            currentGradeFilter = e.target.dataset.grade;
+            applyFilters();
+        });
+    });
+
+    // Score Range Filter (now filters by email score)
+    scoreMin.addEventListener('input', applyFilters);
+    scoreMax.addEventListener('input', applyFilters);
+
+    function applyFilters() {
+        const min = parseFloat(scoreMin.value);
+        const max = parseFloat(scoreMax.value);
+
+        Array.from(resultsTbody.querySelectorAll('tr')).forEach(row => {
+            const statusCell = row.querySelector('td:nth-child(5)');
+            const emailScoreCell = row.querySelector('.email-score-num');
+            
+            if (!statusCell) return;
+            
+            const statusText = statusCell.textContent;
+            const emailScore = emailScoreCell ? parseFloat(emailScoreCell.dataset.score) : NaN;
+            const rowGrade = row.dataset.emailGrade || '';
+
+            let show = true;
+
+            // Status Check
+            if (currentStatusFilter !== 'All' && !statusText.includes(currentStatusFilter)) {
+                show = false;
+            }
+
+            // Grade Check
+            if (show && currentGradeFilter !== 'All' && rowGrade !== currentGradeFilter) {
+                show = false;
+            }
+
+            // Email Score Range Check
+            if (show && !isNaN(emailScore)) {
+                if (!isNaN(min) && emailScore < min) show = false;
+                if (!isNaN(max) && emailScore > max) show = false;
+            }
+
+            if (show) {
+                row.classList.remove('hidden');
+            } else {
+                row.classList.add('hidden');
+            }
+        });
+    }
+
+    // Modal Close
+    modalClose.addEventListener('click', closeModal);
+    modalOverlay.addEventListener('click', (e) => {
+        if (e.target === modalOverlay) closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeModal();
+    });
+
+    function closeModal() {
+        modalOverlay.classList.add('hidden');
+    }
+
+    function openDetailsModal(result) {
+        const domain = result.domain;
+        const checks = result.email_checks || {};
+        const score = result.email_score || 0;
+        const grade = result.email_grade || 'F';
+        const gradeClass = result.email_grade_class || 'grade-fail';
+
+        modalDomainTitle.textContent = domain;
+        
+        // Build modal content
+        const circumference = 2 * Math.PI * 30; // r=30 for the modal ring
+        const offset = circumference - (score / 10) * circumference;
+
+        let html = `
+            <div class="modal-score-summary">
+                <div class="modal-score-ring">
+                    <svg viewBox="0 0 72 72">
+                        <circle class="ring-bg" cx="36" cy="36" r="30"></circle>
+                        <circle class="ring-fill ${gradeClass}" cx="36" cy="36" r="30"
+                            style="stroke-dasharray: ${circumference}; stroke-dashoffset: ${offset};">
+                        </circle>
+                    </svg>
+                    <span class="score-value">${score}</span>
+                </div>
+                <div class="modal-score-info">
+                    <h3 class="${gradeClass}" style="color: var(--${gradeClass.replace('grade-', 'grade-')})">${grade}</h3>
+                    <p>Email Deliverability Score: <strong>${score}/10</strong></p>
+                </div>
+            </div>
+            <div class="check-grid">
+        `;
+
+        // SPF
+        const spf = checks.spf || {};
+        html += buildCheckItem(
+            'SPF Record',
+            spf.exists,
+            spf.exists 
+                ? `${spf.strictness} — <code>${truncate(spf.record, 80)}</code>` 
+                : 'No SPF record found',
+            spf.score, 1.5
+        );
+
+        // DKIM
+        const dkim = checks.dkim || {};
+        html += buildCheckItem(
+            'DKIM Signing',
+            dkim.exists,
+            dkim.exists 
+                ? `Selector: <code>${dkim.selector}</code>` 
+                : 'No DKIM selector found (checked 20+ common selectors)',
+            dkim.score, 1.5
+        );
+
+        // DMARC
+        const dmarc = checks.dmarc || {};
+        html += buildCheckItem(
+            'DMARC Policy',
+            dmarc.exists,
+            dmarc.exists 
+                ? `Policy: <strong>${dmarc.policy}</strong>${dmarc.has_rua ? ' · Reporting ✓' : ''}` 
+                : 'No DMARC record found',
+            dmarc.score, 2.0
+        );
+
+        // MX
+        const mx = checks.mx || {};
+        html += buildCheckItem(
+            'MX Records',
+            mx.exists,
+            mx.exists 
+                ? mx.records.map(r => `<code>${r.host}</code> (pri: ${r.priority})`).join('<br>') 
+                : 'No MX records found',
+            mx.score, 1.5
+        );
+
+        // BIMI
+        const bimi = checks.bimi || {};
+        html += buildCheckItem(
+            'BIMI (Gmail Blue Check)',
+            bimi.exists,
+            bimi.exists 
+                ? `<code>${truncate(bimi.record, 80)}</code>` 
+                : 'No BIMI record — not required but helps Gmail trust',
+            bimi.score, 0.5
+        );
+
+        // PTR
+        const ptr = checks.ptr || {};
+        html += buildCheckItem(
+            'Reverse DNS (PTR)',
+            ptr.exists,
+            ptr.exists 
+                ? `IP: <code>${ptr.ip}</code> → <code>${ptr.ptr}</code>` 
+                : 'No PTR / reverse DNS found for mail server',
+            ptr.score, 0.5
+        );
+
+        // Domain Age
+        const age = checks.domain_age || {};
+        html += buildCheckItem(
+            'Domain Age',
+            age.exists,
+            age.exists 
+                ? `Created: <strong>${age.creation_date}</strong> — ${age.age_years} years old` 
+                : 'Could not determine domain age (WHOIS private)',
+            age.score, 1.0
+        );
+
+        // SMTP TLS
+        const tls = checks.smtp_tls || {};
+        html += buildCheckItem(
+            'SMTP TLS Encryption',
+            tls.exists && tls.tls,
+            tls.exists 
+                ? (tls.tls ? `<code>${tls.host}</code> supports STARTTLS ✓` : `<code>${tls.host}</code> does NOT support TLS`)
+                : 'Could not connect to mail server on port 25',
+            tls.score, 1.0
+        );
+
+        html += '</div>';
+        
+        modalBody.innerHTML = html;
+        modalOverlay.classList.remove('hidden');
+
+        // Trigger ring animation
+        requestAnimationFrame(() => {
+            const ringFill = modalBody.querySelector('.ring-fill');
+            if (ringFill) {
+                ringFill.style.strokeDashoffset = offset;
+            }
+        });
+
+        // Re-init lucide icons in modal
+        lucide.createIcons();
+    }
+
+    function buildCheckItem(title, passed, detail, score, maxScore) {
+        const statusClass = passed ? 'pass' : (score > 0 ? 'partial' : 'fail');
+        const icon = passed ? 'check' : (score > 0 ? 'minus' : 'x');
+        const pts = `${score || 0}/${maxScore}`;
+        
+        return `
+            <div class="check-item">
+                <div class="check-icon ${statusClass}">
+                    <i data-lucide="${icon}"></i>
+                </div>
+                <div class="check-info">
+                    <div class="check-title">
+                        ${title}
+                        <span class="check-pts">${pts} pts</span>
+                    </div>
+                    <div class="check-detail">${detail}</div>
+                </div>
+            </div>
+        `;
+    }
+
+    function truncate(str, len) {
+        if (!str) return '';
+        return str.length > len ? str.substring(0, len) + '…' : str;
+    }
+
     // Check Action
     btnCheck.addEventListener('click', async () => {
         if (isChecking) {
-            if (checkAbortController) checkAbortController.abort();
+            if (checkAbortController) {
+                checkAbortController.abort();
+            }
             return;
         }
 
@@ -139,6 +332,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (targets.length === 0) return;
 
+        // Start checking UI state
         isChecking = true;
         checkAbortController = new AbortController();
         
@@ -156,7 +350,9 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             await processTargets(targets, checkAbortController.signal);
         } catch (err) {
-            if (err.name !== 'AbortError') console.error("Checking error:", err);
+            if (err.name !== 'AbortError') {
+                console.error("Checking error:", err);
+            }
         } finally {
             isChecking = false;
             checkSpinner.classList.add('hidden');
@@ -166,69 +362,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Copy Results
-    btnCopy.addEventListener('click', () => {
-        if (resultsData.length === 0) return;
-        
-        const minScore = parseFloat(minScoreInput.value);
-        const maxScore = parseFloat(maxScoreInput.value);
-
-        let filtered = resultsData.filter(data => {
-            // Status match
-            const matchesStatus = (activeStatus === 'all' || data.status === activeStatus);
-            
-            // Type match
-            const matchesType = (activeType === 'all' || (data.type && data.type.includes(activeType)));
-
-            // Score match
-            let matchesScore = true;
-            const scoreNum = parseFloat(data.score);
-            if (!isNaN(scoreNum)) {
-                if (!isNaN(minScore) && scoreNum < minScore) matchesScore = false;
-                if (!isNaN(maxScore) && scoreNum > maxScore) matchesScore = false;
-            } else if (!isNaN(minScore) || !isNaN(maxScore)) {
-                matchesScore = false;
-            }
-            
-            return matchesStatus && matchesType && matchesScore;
-        });
-
-        if (filtered.length === 0) {
-            const originalText = btnCopy.innerHTML;
-            btnCopy.innerHTML = '<i data-lucide="alert-circle"></i> No matches!';
-            lucide.createIcons();
-            setTimeout(() => {
-                btnCopy.innerHTML = originalText;
-                lucide.createIcons();
-            }, 2000);
-            return;
-        }
-
-        let copyText = "TARGET\tTYPE\tLISTED\tEXPIRES\tREASON\tSTATUS\n";
-        filtered.forEach(row => {
-            copyText += `${row.domain}\t${row.type}\t${row.listed_date}\t${row.expiry_date}\t${row.reason}\t${row.status}\n`;
-        });
-        
-        navigator.clipboard.writeText(copyText).then(() => {
-            const originalText = btnCopy.innerHTML;
-            btnCopy.innerHTML = `<i data-lucide="check"></i> Copied ${filtered.length}!`;
-            lucide.createIcons();
-            setTimeout(() => {
-                btnCopy.innerHTML = originalText;
-                lucide.createIcons();
-            }, 2000);
-        }).catch(err => {
-            console.error('Failed to copy: ', err);
-        });
-    });
-
     // Export CSV
     btnExport.addEventListener('click', () => {
         if (resultsData.length === 0) return;
         
-        let csvContent = "data:text/csv;charset=utf-8,TARGET,SCORE,SMTP,TYPE,LISTED,EXPIRES,REASON,STATUS\n";
+        let csvContent = "data:text/csv;charset=utf-8,DOMAIN,SPAMHAUS_SCORE,EMAIL_SCORE,EMAIL_GRADE,SMTP,STATUS\n";
         resultsData.forEach(row => {
-            csvContent += `${row.domain},${row.score},${row.smtp},${row.type},${row.listed_date},${row.expiry_date},${row.reason},${row.status}\n`;
+            const emailScore = row.email_score !== undefined ? row.email_score : '-';
+            const emailGrade = row.email_grade || '-';
+            csvContent += `${row.domain},${row.score},${emailScore},${emailGrade},${row.smtp_score || '-'},${row.status}\n`;
         });
         
         const encodedUri = encodeURI(csvContent);
@@ -241,119 +383,183 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- Core Logic ---
-    const CHUNK_SIZE = 10; // Increased chunk size for better throughput now that tokens are cached
-
-    function chunkArray(arr, size) {
-        const chunks = [];
-        for (let i = 0; i < arr.length; i += size) {
-            chunks.push(arr.slice(i, i + size));
-        }
-        return chunks;
-    }
-
     async function processTargets(targets, signal) {
-        const chunks = chunkArray(targets, CHUNK_SIZE);
-        let processed = 0;
+        try {
+            const response = await fetch('/api/check', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ targets: targets, type: currentMode }),
+                signal: signal
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP Error: ${response.status}`);
+            }
 
-        for (const chunk of chunks) {
-            if (signal.aborted) throw new DOMException("Aborted", 'AbortError');
-
-            try {
-                const response = await fetch('/api/index', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ targets: chunk, type: currentMode }),
-                    signal: signal
-                });
-
-                if (!response.ok) {
-                    chunk.forEach(t => {
-                        const tempId = Math.random().toString(36).substr(2, 9);
-                        const errResult = { tempId, domain: t, score: `HTTP ${response.status}`, smtp: "-", date: "-", type: "-", listed_date: "-", expiry_date: "-", reason: "-", status: "Error", statusClass: "status-error" };
-                        resultsData.push(errResult);
-                        appendResultRow(errResult);
-                    });
-                    processed += chunk.length;
-                    progressText.textContent = `${processed} / ${targets.length}`;
-                    progressFill.style.width = `${(processed / targets.length) * 100}%`;
-                    continue;
-                }
-
-                const data = await response.json();
-                const results = Array.isArray(data) ? data : (data.results || []);
-
-                for (const result of results) {
-                    if (signal.aborted) throw new DOMException("Aborted", 'AbortError');
-                    result.tempId = Math.random().toString(36).substr(2, 9);
-                    resultsData.push(result);
-                    appendResultRow(result);
-                    processed++;
-                    progressText.textContent = `${processed} / ${targets.length}`;
-                    progressFill.style.width = `${(processed / targets.length) * 100}%`;
-                    await new Promise(r => setTimeout(r, 20));
-                }
-
-            } catch (err) {
-                if (err.name === 'AbortError') throw err;
-                chunk.forEach(t => {
-                    const tempId = Math.random().toString(36).substr(2, 9);
-                    const errResult = { tempId, domain: t, score: "Net Err", smtp: "-", date: "-", type: "-", listed_date: "-", expiry_date: "-", reason: "-", status: "Error", statusClass: "status-error" };
-                    resultsData.push(errResult);
-                    appendResultRow(errResult);
-                });
-                processed += chunk.length;
+            const data = await response.json();
+            
+            if (data.error) {
+                throw new Error(data.error);
+            }
+            
+            const results = data.results || [];
+            
+            for (let i = 0; i < results.length; i++) {
+                if (signal.aborted) throw new DOMException("Aborted", 'AbortError');
+                
+                const result = results[i];
+                resultsData.push(result);
+                appendResultRow(result);
+                applyFilters();
+                
+                const processed = i + 1;
                 progressText.textContent = `${processed} / ${targets.length}`;
                 progressFill.style.width = `${(processed / targets.length) * 100}%`;
+                
+                await new Promise(r => setTimeout(r, 50));
             }
+            
+        } catch (err) {
+            if (err.name !== 'AbortError') {
+                console.error("API Error:", err);
+                for (let i = 0; i < targets.length; i++) {
+                    const errorResult = {
+                        domain: targets[i], 
+                        score: "Server Err", 
+                        date: "-", 
+                        status: "Error", 
+                        statusClass: "status-error",
+                        email_score: 0,
+                        email_grade: "F",
+                        email_grade_class: "grade-fail",
+                        email_checks: {}
+                    };
+                    resultsData.push(errorResult);
+                    appendResultRow(errorResult);
+                }
+                progressText.textContent = `Error / ${targets.length}`;
+                progressFill.style.width = `100%`;
+            }
+            throw err;
         }
+    }
+
+    function createScoreRing(score, gradeClass) {
+        const circumference = 2 * Math.PI * 18; // r=18 for small ring
+        const offset = circumference - (score / 10) * circumference;
+        
+        const container = document.createElement('div');
+        container.className = 'email-score-cell';
+        
+        // Ring
+        const ring = document.createElement('div');
+        ring.className = 'score-ring';
+        ring.innerHTML = `
+            <svg viewBox="0 0 42 42">
+                <circle class="ring-bg" cx="21" cy="21" r="18"></circle>
+                <circle class="ring-fill ${gradeClass}" cx="21" cy="21" r="18"
+                    style="stroke-dasharray: ${circumference}; stroke-dashoffset: ${circumference};">
+                </circle>
+            </svg>
+            <span class="score-value">${score}</span>
+        `;
+        
+        container.appendChild(ring);
+        
+        // Animate the ring fill after a short delay
+        requestAnimationFrame(() => {
+            setTimeout(() => {
+                const fill = ring.querySelector('.ring-fill');
+                if (fill) fill.style.strokeDashoffset = offset;
+            }, 100);
+        });
+        
+        return container;
     }
 
     function appendResultRow(result) {
         const tr = document.createElement('tr');
-        tr.setAttribute('data-id', result.tempId);
+        tr.dataset.emailGrade = result.email_grade || '';
         
+        // TARGET
         const tdDomain = document.createElement('td');
         tdDomain.textContent = result.domain;
         
+        // SPAMHAUS SCORE
         const tdScore = document.createElement('td');
         tdScore.textContent = result.score;
-        tdScore.classList.add('col-score');
         
-        const tdSMTP = document.createElement('td');
-        tdSMTP.textContent = result.smtp || "-";
-        tdSMTP.classList.add('col-smtp');
+        // EMAIL SCORE (ring badge)
+        const tdEmailScore = document.createElement('td');
+        if (currentMode === 'domains' && result.email_score !== undefined) {
+            const ringEl = createScoreRing(result.email_score, result.email_grade_class || 'grade-fail');
+            
+            // Add grade info
+            const gradeDiv = document.createElement('div');
+            gradeDiv.className = 'score-grade';
+            gradeDiv.innerHTML = `
+                <span class="grade-letter ${result.email_grade_class || ''}">${result.email_grade || 'F'}</span>
+                <span class="grade-label">${getGradeLabel(result.email_grade)}</span>
+            `;
+            ringEl.appendChild(gradeDiv);
+            
+            // Hidden element for filtering
+            const hiddenScore = document.createElement('span');
+            hiddenScore.className = 'email-score-num';
+            hiddenScore.style.display = 'none';
+            hiddenScore.dataset.score = result.email_score;
+            ringEl.appendChild(hiddenScore);
+            
+            tdEmailScore.appendChild(ringEl);
+        } else {
+            tdEmailScore.textContent = '-';
+        }
         
-        const tdType = document.createElement('td');
-        tdType.textContent = result.type || "-";
-        tdType.classList.add('col-type');
+        // SMTP
+        const tdSmtp = document.createElement('td');
+        tdSmtp.textContent = result.smtp_score !== undefined && result.smtp_score !== null ? result.smtp_score : '-';
         
-        const tdListedDate = document.createElement('td');
-        tdListedDate.textContent = result.listed_date || "-";
-        tdListedDate.classList.add('col-listed');
-        
-        const tdExpiryDate = document.createElement('td');
-        tdExpiryDate.textContent = result.expiry_date || "-";
-        tdExpiryDate.classList.add('col-expiry');
-        
-        const tdReason = document.createElement('td');
-        tdReason.textContent = result.reason || "-";
-        tdReason.classList.add('reason-cell', 'col-reason');
-        
+        // STATUS
         const tdStatus = document.createElement('td');
         tdStatus.textContent = result.status;
         if (result.statusClass) {
             tdStatus.classList.add(result.statusClass);
         }
 
+        // DETAILS button
+        const tdDetails = document.createElement('td');
+        if (currentMode === 'domains' && result.email_checks) {
+            const btn = document.createElement('button');
+            btn.className = 'btn-details';
+            btn.innerHTML = '<i data-lucide="eye"></i> View';
+            btn.addEventListener('click', () => openDetailsModal(result));
+            tdDetails.appendChild(btn);
+        } else {
+            tdDetails.textContent = '-';
+        }
+
         tr.appendChild(tdDomain);
         tr.appendChild(tdScore);
-        tr.appendChild(tdSMTP);
-        tr.appendChild(tdType);
-        tr.appendChild(tdListedDate);
-        tr.appendChild(tdExpiryDate);
-        tr.appendChild(tdReason);
+        tr.appendChild(tdEmailScore);
+        tr.appendChild(tdSmtp);
         tr.appendChild(tdStatus);
+        tr.appendChild(tdDetails);
 
         resultsTbody.appendChild(tr);
+        
+        // Re-init lucide icons for new elements
+        lucide.createIcons();
+    }
+
+    function getGradeLabel(grade) {
+        switch(grade) {
+            case 'A+': return 'Excellent';
+            case 'A': return 'Good';
+            case 'B': return 'Average';
+            case 'C': return 'Below Avg';
+            case 'D': return 'Poor';
+            case 'F': return 'Failing';
+            default: return '';
+        }
     }
 });

@@ -6,6 +6,21 @@ import urllib.parse
 import os
 import datetime
 import time
+import socket
+import ssl
+import smtplib
+import concurrent.futures
+from datetime import datetime, timezone
+
+try:
+    import dns.resolver
+except ImportError:
+    dns = None
+
+try:
+    import whois
+except ImportError:
+    whois = None
 
 # Global Token Cache to prevent login rate limits
 TOKEN_CACHE = {}
@@ -39,6 +54,246 @@ def enrich_reason(code, dataset=None):
             
     return code, code
 
+
+# ============================================================
+# DNS / Email Scoring Engine
+# ============================================================
+
+def check_spf(domain):
+    if not dns:
+        return {"exists": False, "record": None, "strictness": None, "score": 0}
+    try:
+        answers = dns.resolver.resolve(domain, 'TXT')
+        for rdata in answers:
+            txt = rdata.to_text().strip('"')
+            if txt.startswith('v=spf1'):
+                score = 0.5
+                strictness = "unknown"
+                if '-all' in txt:
+                    score = 1.5
+                    strictness = "strict (-all)"
+                elif '~all' in txt:
+                    score = 1.0
+                    strictness = "softfail (~all)"
+                elif '?all' in txt:
+                    score = 0.6
+                    strictness = "neutral (?all)"
+                elif '+all' in txt:
+                    score = 0.2
+                    strictness = "permissive (+all)"
+                return {"exists": True, "record": txt[:120], "strictness": strictness, "score": score}
+    except Exception:
+        pass
+    return {"exists": False, "record": None, "strictness": None, "score": 0}
+
+
+def check_dkim(domain):
+    if not dns:
+        return {"exists": False, "selector": None, "score": 0}
+    common_selectors = [
+        "default", "google", "selector1", "selector2",
+        "k1", "k2", "k3", "s1", "s2", "dkim", "mail", "email",
+        "mandrill", "smtp", "cm", "pic", "protonmail", "protonmail2",
+        "sig1", "mailjet"
+    ]
+    for sel in common_selectors:
+        try:
+            qname = f"{sel}._domainkey.{domain}"
+            answers = dns.resolver.resolve(qname, 'TXT')
+            for rdata in answers:
+                txt = rdata.to_text().strip('"')
+                if 'v=DKIM1' in txt or 'p=' in txt:
+                    return {"exists": True, "selector": sel, "score": 1.5}
+        except Exception:
+            continue
+    for sel in common_selectors[:6]:
+        try:
+            qname = f"{sel}._domainkey.{domain}"
+            answers = dns.resolver.resolve(qname, 'CNAME')
+            if answers:
+                return {"exists": True, "selector": sel + " (CNAME)", "score": 1.5}
+        except Exception:
+            continue
+    return {"exists": False, "selector": None, "score": 0}
+
+
+def check_dmarc(domain):
+    if not dns:
+        return {"exists": False, "record": None, "policy": None, "has_rua": False, "has_ruf": False, "score": 0}
+    try:
+        answers = dns.resolver.resolve(f"_dmarc.{domain}", 'TXT')
+        for rdata in answers:
+            txt = rdata.to_text().strip('"')
+            if 'v=DMARC1' in txt:
+                policy = "none"
+                if 'p=reject' in txt:
+                    policy = "reject"
+                    score = 2.0
+                elif 'p=quarantine' in txt:
+                    policy = "quarantine"
+                    score = 1.5
+                elif 'p=none' in txt:
+                    policy = "none"
+                    score = 0.7
+                else:
+                    score = 0.5
+                
+                has_rua = 'rua=' in txt
+                has_ruf = 'ruf=' in txt
+                if has_rua:
+                    score = min(score + 0.1, 2.0)
+                
+                return {"exists": True, "record": txt[:120], "policy": policy, "has_rua": has_rua, "has_ruf": has_ruf, "score": score}
+    except Exception:
+        pass
+    return {"exists": False, "record": None, "policy": None, "has_rua": False, "has_ruf": False, "score": 0}
+
+
+def check_mx(domain):
+    if not dns:
+        return {"exists": False, "records": [], "score": 0}
+    try:
+        answers = dns.resolver.resolve(domain, 'MX')
+        records = []
+        for rdata in answers:
+            records.append({"priority": rdata.preference, "host": str(rdata.exchange).rstrip('.')})
+        if records:
+            score = 1.0
+            if len(records) >= 2:
+                score = 1.5
+            return {"exists": True, "records": records[:5], "score": score}
+    except Exception:
+        pass
+    return {"exists": False, "records": [], "score": 0}
+
+
+def check_bimi(domain):
+    if not dns:
+        return {"exists": False, "record": None, "score": 0}
+    try:
+        answers = dns.resolver.resolve(f"default._bimi.{domain}", 'TXT')
+        for rdata in answers:
+            txt = rdata.to_text().strip('"')
+            if 'v=BIMI1' in txt:
+                return {"exists": True, "record": txt[:120], "score": 0.5}
+    except Exception:
+        pass
+    return {"exists": False, "record": None, "score": 0}
+
+
+def check_ptr_reverse(domain):
+    if not dns:
+        return {"exists": False, "ip": None, "ptr": None, "score": 0}
+    try:
+        mx_answers = dns.resolver.resolve(domain, 'MX')
+        for rdata in mx_answers:
+            mx_host = str(rdata.exchange).rstrip('.')
+            try:
+                a_answers = dns.resolver.resolve(mx_host, 'A')
+                for a_rdata in a_answers:
+                    ip = str(a_rdata)
+                    rev_name = dns.reversename.from_address(ip)
+                    ptr_answers = dns.resolver.resolve(rev_name, 'PTR')
+                    if ptr_answers:
+                        return {"exists": True, "ip": ip, "ptr": str(ptr_answers[0]).rstrip('.'), "score": 0.5}
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return {"exists": False, "ip": None, "ptr": None, "score": 0}
+
+
+def check_domain_age(domain):
+    if not whois:
+        return {"exists": False, "creation_date": None, "age_years": None, "score": 0}
+    try:
+        w = whois.whois(domain)
+        creation_date = w.creation_date
+        if isinstance(creation_date, list):
+            creation_date = creation_date[0]
+        if creation_date:
+            if creation_date.tzinfo is None:
+                age_days = (datetime.now() - creation_date).days
+            else:
+                age_days = (datetime.now(timezone.utc) - creation_date).days
+            age_years = age_days / 365.25
+            
+            if age_years >= 5: score = 1.0
+            elif age_years >= 2: score = 0.7
+            elif age_years >= 1: score = 0.5
+            elif age_years >= 0.5: score = 0.3
+            else: score = 0.1
+            
+            return {"exists": True, "creation_date": str(creation_date)[:10], "age_years": round(age_years, 1), "score": score}
+    except Exception:
+        pass
+    return {"exists": False, "creation_date": None, "age_years": None, "score": 0}
+
+
+def check_smtp_tls(domain):
+    if not dns:
+        return {"exists": False, "host": None, "tls": None, "score": 0}
+    try:
+        mx_answers = dns.resolver.resolve(domain, 'MX')
+        mx_host = str(list(mx_answers)[0].exchange).rstrip('.')
+        
+        smtp = smtplib.SMTP(timeout=3)
+        smtp.connect(mx_host, 25)
+        smtp.ehlo()
+        
+        if smtp.has_extn('starttls'):
+            smtp.starttls()
+            smtp.quit()
+            return {"exists": True, "host": mx_host, "tls": True, "score": 1.0}
+        else:
+            smtp.quit()
+            return {"exists": True, "host": mx_host, "tls": False, "score": 0.3}
+    except Exception:
+        pass
+    return {"exists": False, "host": None, "tls": None, "score": 0}
+
+
+def compute_email_score(domain):
+    results = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {
+            executor.submit(check_spf, domain): 'spf',
+            executor.submit(check_dkim, domain): 'dkim',
+            executor.submit(check_dmarc, domain): 'dmarc',
+            executor.submit(check_mx, domain): 'mx',
+            executor.submit(check_bimi, domain): 'bimi',
+            executor.submit(check_ptr_reverse, domain): 'ptr',
+            executor.submit(check_domain_age, domain): 'domain_age',
+            executor.submit(check_smtp_tls, domain): 'smtp_tls',
+        }
+        for future in concurrent.futures.as_completed(futures):
+            key = futures[future]
+            try:
+                results[key] = future.result()
+            except Exception:
+                results[key] = {"exists": False, "score": 0}
+    
+    raw_total = sum(r.get('score', 0) for r in results.values())
+    max_possible = 9.5
+    normalized_score = round(min((raw_total / max_possible) * 10.0, 10.0), 1)
+    
+    if normalized_score >= 8.5: grade, grade_class = "A+", "grade-excellent"
+    elif normalized_score >= 7.0: grade, grade_class = "A", "grade-good"
+    elif normalized_score >= 5.5: grade, grade_class = "B", "grade-average"
+    elif normalized_score >= 4.0: grade, grade_class = "C", "grade-below"
+    elif normalized_score >= 2.0: grade, grade_class = "D", "grade-poor"
+    else: grade, grade_class = "F", "grade-fail"
+    
+    return {
+        "score": normalized_score,
+        "grade": grade,
+        "grade_class": grade_class,
+        "raw_total": round(raw_total, 2),
+        "max_possible": max_possible,
+        "checks": results
+    }
+
+
 class handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(200)
@@ -48,7 +303,6 @@ class handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self):
-        # Handle CORS
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Content-type', 'application/json')
@@ -63,11 +317,28 @@ class handler(BaseHTTPRequestHandler):
             target_type = req_data.get('type', 'domains')
             
             results = []
-            for target in targets:
-                res = self.query_spamhaus(target, target_type)
-                results.append(res)
+            if target_type == 'domains':
+                with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                    future_map = {executor.submit(self.query_domain_full, t): t for t in targets}
+                    for future in concurrent.futures.as_completed(future_map):
+                        try:
+                            results.append(future.result())
+                        except Exception:
+                            t = future_map[future]
+                            results.append({
+                                "domain": t, "score": "Error", "smtp": "-", "date": "-",
+                                "status": "Error", "statusClass": "status-error",
+                                "email_score": 0, "email_grade": "F", "email_grade_class": "grade-fail",
+                                "email_checks": {}
+                            })
+                target_order = {t: i for i, t in enumerate(targets)}
+                results.sort(key=lambda r: target_order.get(r['domain'], 999))
+            else:
+                for target in targets:
+                    res = self.query_spamhaus(target, target_type)
+                    results.append(res)
                 
-            self.wfile.write(json.dumps(results).encode('utf-8'))
+            self.wfile.write(json.dumps({"results": results}).encode('utf-8'))
             
         except Exception as e:
             error_response = {
@@ -77,7 +348,17 @@ class handler(BaseHTTPRequestHandler):
                 "status": "Error",
                 "statusClass": "status-error"
             }
-            self.wfile.write(json.dumps(error_response).encode('utf-8'))
+            self.wfile.write(json.dumps({"error": str(e), "results": [error_response]}).encode('utf-8'))
+
+    def query_domain_full(self, domain):
+        spamhaus = self.query_spamhaus(domain, 'domains')
+        email_result = compute_email_score(domain)
+        
+        spamhaus['email_score'] = email_result['score']
+        spamhaus['email_grade'] = email_result['grade']
+        spamhaus['email_grade_class'] = email_result['grade_class']
+        spamhaus['email_checks'] = email_result['checks']
+        return spamhaus
 
     def load_accounts(self):
         accounts_env = os.environ.get('SPAMHAUS_ACCOUNTS')
@@ -102,7 +383,6 @@ class handler(BaseHTTPRequestHandler):
         user = account.get('username')
         now = time.time()
         
-        # Return cached token if valid
         if user in TOKEN_CACHE and TOKEN_CACHE[user]["expires"] > now:
             return TOKEN_CACHE[user]["token"]
 
@@ -157,7 +437,6 @@ class handler(BaseHTTPRequestHandler):
                         continue
                 
                 if len(all_results) > 0:
-                    # Filter active results robustly
                     active_results = []
                     for r in all_results:
                         v_until = r.get("valid_until", 0)
