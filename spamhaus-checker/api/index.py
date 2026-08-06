@@ -17,11 +17,6 @@ try:
 except ImportError:
     dns = None
 
-try:
-    import whois
-except ImportError:
-    whois = None
-
 # Global Token Cache to prevent login rate limits
 TOKEN_CACHE = {}
 
@@ -56,14 +51,23 @@ def enrich_reason(code, dataset=None):
 
 
 # ============================================================
-# DNS / Email Scoring Engine
+# Fast Serverless DNS Engine
 # ============================================================
+
+def create_fast_resolver():
+    if not dns:
+        return None
+    r = dns.resolver.Resolver()
+    r.timeout = 1.5
+    r.lifetime = 1.5
+    return r
 
 def check_spf(domain):
     if not dns:
         return {"exists": False, "record": None, "strictness": None, "score": 0}
     try:
-        answers = dns.resolver.resolve(domain, 'TXT')
+        r = create_fast_resolver()
+        answers = r.resolve(domain, 'TXT')
         for rdata in answers:
             txt = rdata.to_text().strip('"')
             if txt.startswith('v=spf1'):
@@ -90,28 +94,16 @@ def check_spf(domain):
 def check_dkim(domain):
     if not dns:
         return {"exists": False, "selector": None, "score": 0}
-    common_selectors = [
-        "default", "google", "selector1", "selector2",
-        "k1", "k2", "k3", "s1", "s2", "dkim", "mail", "email",
-        "mandrill", "smtp", "cm", "pic", "protonmail", "protonmail2",
-        "sig1", "mailjet"
-    ]
+    common_selectors = ["default", "google", "selector1", "k1", "s1", "mail"]
+    r = create_fast_resolver()
     for sel in common_selectors:
         try:
             qname = f"{sel}._domainkey.{domain}"
-            answers = dns.resolver.resolve(qname, 'TXT')
+            answers = r.resolve(qname, 'TXT')
             for rdata in answers:
                 txt = rdata.to_text().strip('"')
                 if 'v=DKIM1' in txt or 'p=' in txt:
                     return {"exists": True, "selector": sel, "score": 1.5}
-        except Exception:
-            continue
-    for sel in common_selectors[:6]:
-        try:
-            qname = f"{sel}._domainkey.{domain}"
-            answers = dns.resolver.resolve(qname, 'CNAME')
-            if answers:
-                return {"exists": True, "selector": sel + " (CNAME)", "score": 1.5}
         except Exception:
             continue
     return {"exists": False, "selector": None, "score": 0}
@@ -121,7 +113,8 @@ def check_dmarc(domain):
     if not dns:
         return {"exists": False, "record": None, "policy": None, "has_rua": False, "has_ruf": False, "score": 0}
     try:
-        answers = dns.resolver.resolve(f"_dmarc.{domain}", 'TXT')
+        r = create_fast_resolver()
+        answers = r.resolve(f"_dmarc.{domain}", 'TXT')
         for rdata in answers:
             txt = rdata.to_text().strip('"')
             if 'v=DMARC1' in txt:
@@ -153,7 +146,8 @@ def check_mx(domain):
     if not dns:
         return {"exists": False, "records": [], "score": 0}
     try:
-        answers = dns.resolver.resolve(domain, 'MX')
+        r = create_fast_resolver()
+        answers = r.resolve(domain, 'MX')
         records = []
         for rdata in answers:
             records.append({"priority": rdata.preference, "host": str(rdata.exchange).rstrip('.')})
@@ -171,7 +165,8 @@ def check_bimi(domain):
     if not dns:
         return {"exists": False, "record": None, "score": 0}
     try:
-        answers = dns.resolver.resolve(f"default._bimi.{domain}", 'TXT')
+        r = create_fast_resolver()
+        answers = r.resolve(f"default._bimi.{domain}", 'TXT')
         for rdata in answers:
             txt = rdata.to_text().strip('"')
             if 'v=BIMI1' in txt:
@@ -185,15 +180,16 @@ def check_ptr_reverse(domain):
     if not dns:
         return {"exists": False, "ip": None, "ptr": None, "score": 0}
     try:
-        mx_answers = dns.resolver.resolve(domain, 'MX')
+        r = create_fast_resolver()
+        mx_answers = r.resolve(domain, 'MX')
         for rdata in mx_answers:
             mx_host = str(rdata.exchange).rstrip('.')
             try:
-                a_answers = dns.resolver.resolve(mx_host, 'A')
+                a_answers = r.resolve(mx_host, 'A')
                 for a_rdata in a_answers:
                     ip = str(a_rdata)
                     rev_name = dns.reversename.from_address(ip)
-                    ptr_answers = dns.resolver.resolve(rev_name, 'PTR')
+                    ptr_answers = r.resolve(rev_name, 'PTR')
                     if ptr_answers:
                         return {"exists": True, "ip": ip, "ptr": str(ptr_answers[0]).rstrip('.'), "score": 0.5}
             except Exception:
@@ -203,59 +199,9 @@ def check_ptr_reverse(domain):
     return {"exists": False, "ip": None, "ptr": None, "score": 0}
 
 
-def check_domain_age(domain):
-    if not whois:
-        return {"exists": False, "creation_date": None, "age_years": None, "score": 0}
-    try:
-        w = whois.whois(domain)
-        creation_date = w.creation_date
-        if isinstance(creation_date, list):
-            creation_date = creation_date[0]
-        if creation_date:
-            if creation_date.tzinfo is None:
-                age_days = (datetime.now() - creation_date).days
-            else:
-                age_days = (datetime.now(timezone.utc) - creation_date).days
-            age_years = age_days / 365.25
-            
-            if age_years >= 5: score = 1.0
-            elif age_years >= 2: score = 0.7
-            elif age_years >= 1: score = 0.5
-            elif age_years >= 0.5: score = 0.3
-            else: score = 0.1
-            
-            return {"exists": True, "creation_date": str(creation_date)[:10], "age_years": round(age_years, 1), "score": score}
-    except Exception:
-        pass
-    return {"exists": False, "creation_date": None, "age_years": None, "score": 0}
-
-
-def check_smtp_tls(domain):
-    if not dns:
-        return {"exists": False, "host": None, "tls": None, "score": 0}
-    try:
-        mx_answers = dns.resolver.resolve(domain, 'MX')
-        mx_host = str(list(mx_answers)[0].exchange).rstrip('.')
-        
-        smtp = smtplib.SMTP(timeout=3)
-        smtp.connect(mx_host, 25)
-        smtp.ehlo()
-        
-        if smtp.has_extn('starttls'):
-            smtp.starttls()
-            smtp.quit()
-            return {"exists": True, "host": mx_host, "tls": True, "score": 1.0}
-        else:
-            smtp.quit()
-            return {"exists": True, "host": mx_host, "tls": False, "score": 0.3}
-    except Exception:
-        pass
-    return {"exists": False, "host": None, "tls": None, "score": 0}
-
-
 def compute_email_score(domain):
     results = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
         futures = {
             executor.submit(check_spf, domain): 'spf',
             executor.submit(check_dkim, domain): 'dkim',
@@ -263,8 +209,6 @@ def compute_email_score(domain):
             executor.submit(check_mx, domain): 'mx',
             executor.submit(check_bimi, domain): 'bimi',
             executor.submit(check_ptr_reverse, domain): 'ptr',
-            executor.submit(check_domain_age, domain): 'domain_age',
-            executor.submit(check_smtp_tls, domain): 'smtp_tls',
         }
         for future in concurrent.futures.as_completed(futures):
             key = futures[future]
@@ -273,8 +217,12 @@ def compute_email_score(domain):
             except Exception:
                 results[key] = {"exists": False, "score": 0}
     
+    # Defaults for omitted heavy checks on serverless
+    results['domain_age'] = {"exists": False, "creation_date": None, "age_years": None, "score": 0}
+    results['smtp_tls'] = {"exists": False, "host": None, "tls": None, "score": 0}
+
     raw_total = sum(r.get('score', 0) for r in results.values())
-    max_possible = 9.5
+    max_possible = 7.5
     normalized_score = round(min((raw_total / max_possible) * 10.0, 10.0), 1)
     
     if normalized_score >= 8.5: grade, grade_class = "A+", "grade-excellent"
@@ -318,12 +266,13 @@ class handler(BaseHTTPRequestHandler):
             
             results = []
             if target_type == 'domains':
-                with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                # Limit concurrency to 5 threads in Vercel to stay within 10s execution limit
+                with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
                     future_map = {executor.submit(self.query_domain_full, t): t for t in targets}
                     for future in concurrent.futures.as_completed(future_map):
                         try:
                             results.append(future.result())
-                        except Exception:
+                        except Exception as ex:
                             t = future_map[future]
                             results.append({
                                 "domain": t, "score": "Error", "smtp": "-", "date": "-",
@@ -396,7 +345,7 @@ class handler(BaseHTTPRequestHandler):
         req.add_header('Content-Type', 'application/json')
         
         try:
-            with urllib.request.urlopen(req, timeout=10) as response:
+            with urllib.request.urlopen(req, timeout=5) as response:
                 result = json.loads(response.read().decode('utf-8'))
                 token = result.get('token')
                 if token:
@@ -426,7 +375,7 @@ class handler(BaseHTTPRequestHandler):
                     req = urllib.request.Request(endpoint, method='GET')
                     req.add_header('Authorization', f'Bearer {token}')
                     try:
-                        with urllib.request.urlopen(req, timeout=5) as response:
+                        with urllib.request.urlopen(req, timeout=3) as response:
                             ds_data = json.loads(response.read().decode('utf-8'))
                             all_results.extend(ds_data.get('results', []))
                     except urllib.error.HTTPError as e:
@@ -491,7 +440,7 @@ class handler(BaseHTTPRequestHandler):
             req.add_header('Authorization', f'Bearer {token}')
             
             try:
-                with urllib.request.urlopen(req, timeout=5) as response:
+                with urllib.request.urlopen(req, timeout=3) as response:
                     data = json.loads(response.read().decode('utf-8'))
                     score = str(data.get('score', '-'))
                     val = data.get('score', 0)
@@ -501,7 +450,7 @@ class handler(BaseHTTPRequestHandler):
                         dim_endpoint = f"https://api.spamhaus.org/api/intel/v2/byobject/domain/{target}/dimensions"
                         dim_req = urllib.request.Request(dim_endpoint, method='GET')
                         dim_req.add_header('Authorization', f'Bearer {token}')
-                        with urllib.request.urlopen(dim_req, timeout=3) as dim_res:
+                        with urllib.request.urlopen(dim_req, timeout=2) as dim_res:
                             dim_data = json.loads(dim_res.read().decode('utf-8'))
                             smtp_score = str(dim_data.get('smtp', '-'))
                     except:
