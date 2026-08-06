@@ -4,9 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Spamhaus Reputation Checker</title>
+    <meta name="description" content="Check domain email deliverability scores, SPF, DKIM, DMARC, MX records and Spamhaus blacklist status.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -16,7 +17,7 @@
         
         <header class="app-header">
             <h1>Spamhaus Reputation Checker</h1>
-            <p>Check domain reputations or IP listing histories.</p>
+            <p>Check domain reputations, email deliverability scores & blacklist status.</p>
             
             <div class="mode-toggles">
                 <button class="toggle-btn active" id="btn-domains">Domains</button>
@@ -50,7 +51,7 @@ index.hu</textarea>
             <div class="progress-section hidden" id="progress-container">
                 <div class="progress-header">
                     <span>Processing...</span>
-                    <span id="progress-text">10 / 14</span>
+                    <span id="progress-text">0 / 0</span>
                 </div>
                 <div class="progress-bar-bg">
                     <div class="progress-bar-fill" id="progress-fill"></div>
@@ -69,11 +70,25 @@ index.hu</textarea>
                     </div>
                     
                     <div class="score-range-filter">
-                        <label>SCORE RANGE:</label>
+                        <label>EMAIL SCORE RANGE:</label>
                         <div class="score-inputs">
-                            <input type="number" id="score-min" placeholder="Min">
+                            <input type="number" id="score-min" placeholder="Min" step="0.1" min="0" max="10">
                             <span>-</span>
-                            <input type="number" id="score-max" placeholder="Max">
+                            <input type="number" id="score-max" placeholder="Max" step="0.1" min="0" max="10">
+                        </div>
+                    </div>
+                </div>
+                <div class="filters-row">
+                    <div class="grade-filter">
+                        <label>EMAIL GRADE FILTER:</label>
+                        <div class="grade-toggles">
+                            <button class="grade-btn active" data-grade="All">All</button>
+                            <button class="grade-btn grade-btn-excellent" data-grade="A+">A+</button>
+                            <button class="grade-btn grade-btn-good" data-grade="A">A</button>
+                            <button class="grade-btn grade-btn-average" data-grade="B">B</button>
+                            <button class="grade-btn grade-btn-below" data-grade="C">C</button>
+                            <button class="grade-btn grade-btn-poor" data-grade="D">D</button>
+                            <button class="grade-btn grade-btn-fail" data-grade="F">F</button>
                         </div>
                     </div>
                 </div>
@@ -82,10 +97,12 @@ index.hu</textarea>
                     <table>
                         <thead>
                             <tr>
-                                <th>TARGET <i data-lucide="arrow-up-down" class="sort-icon"></i></th>
-                                <th>SCORE <i data-lucide="arrow-up-down" class="sort-icon"></i></th>
-                                <th>SMTP</th>
-                                <th>STATUS</th>
+                                <th id="th-target">TARGET <i data-lucide="arrow-up-down" class="sort-icon"></i></th>
+                                <th id="th-score">SCORE <i data-lucide="arrow-up-down" class="sort-icon"></i></th>
+                                <th id="th-email-score">EMAIL SCORE <i data-lucide="arrow-up-down" class="sort-icon"></i></th>
+                                <th id="th-smtp">SMTP</th>
+                                <th id="th-status">STATUS</th>
+                                <th id="th-details">DETAILS</th>
                             </tr>
                         </thead>
                         <tbody id="results-tbody">
@@ -96,6 +113,21 @@ index.hu</textarea>
             </div>
 
         </main>
+    </div>
+
+    <!-- Email Details Modal -->
+    <div class="modal-overlay hidden" id="modal-overlay">
+        <div class="modal-container" id="modal-container">
+            <div class="modal-header">
+                <h2 id="modal-domain-title">domain.com</h2>
+                <button class="modal-close" id="modal-close">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <!-- Filled by JS -->
+            </div>
+        </div>
     </div>
 
     <script src="script.js"></script>
