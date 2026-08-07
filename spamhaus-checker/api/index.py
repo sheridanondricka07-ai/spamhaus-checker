@@ -6,16 +6,7 @@ import urllib.parse
 import os
 import datetime
 import time
-import socket
-import ssl
-import smtplib
 import concurrent.futures
-from datetime import datetime, timezone
-
-try:
-    import dns.resolver
-except ImportError:
-    dns = None
 
 # Global Token Cache to prevent login rate limits
 TOKEN_CACHE = {}
@@ -51,164 +42,125 @@ def enrich_reason(code, dataset=None):
 
 
 # ============================================================
-# Fast Serverless DNS Engine
+# Pure HTTP DoH (DNS-over-HTTPS) Email Scoring Engine
+# Works reliably in Vercel Serverless (Port 443 HTTP)
 # ============================================================
 
-def create_fast_resolver():
-    if not dns:
-        return None
-    r = dns.resolver.Resolver()
-    r.timeout = 1.5
-    r.lifetime = 1.5
-    return r
-
-def check_spf(domain):
-    if not dns:
-        return {"exists": False, "record": None, "strictness": None, "score": 0}
+def doh_query(name, rrtype):
+    """Perform DNS query over HTTPS via Google DoH API"""
+    url = f"https://dns.google/resolve?name={urllib.parse.quote(name)}&type={rrtype}"
+    req = urllib.request.Request(url)
+    req.add_header('User-Agent', 'VercelServerless/1.0')
     try:
-        r = create_fast_resolver()
-        answers = r.resolve(domain, 'TXT')
-        for rdata in answers:
-            txt = rdata.to_text().strip('"')
-            if txt.startswith('v=spf1'):
-                score = 0.5
-                strictness = "unknown"
-                if '-all' in txt:
-                    score = 1.5
-                    strictness = "strict (-all)"
-                elif '~all' in txt:
-                    score = 1.0
-                    strictness = "softfail (~all)"
-                elif '?all' in txt:
-                    score = 0.6
-                    strictness = "neutral (?all)"
-                elif '+all' in txt:
-                    score = 0.2
-                    strictness = "permissive (+all)"
-                return {"exists": True, "record": txt[:120], "strictness": strictness, "score": score}
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read().decode('utf-8'))
+                return data.get('Answer', [])
     except Exception:
         pass
+    return []
+
+
+def check_spf(domain):
+    answers = doh_query(domain, 'TXT')
+    for ans in answers:
+        txt = ans.get('data', '').strip('"').strip()
+        if txt.startswith('v=spf1'):
+            score = 0.5
+            strictness = "unknown"
+            if '-all' in txt:
+                score = 1.5
+                strictness = "strict (-all)"
+            elif '~all' in txt:
+                score = 1.0
+                strictness = "softfail (~all)"
+            elif '?all' in txt:
+                score = 0.6
+                strictness = "neutral (?all)"
+            elif '+all' in txt:
+                score = 0.2
+                strictness = "permissive (+all)"
+            return {"exists": True, "record": txt[:120], "strictness": strictness, "score": score}
     return {"exists": False, "record": None, "strictness": None, "score": 0}
 
 
 def check_dkim(domain):
-    if not dns:
-        return {"exists": False, "selector": None, "score": 0}
     common_selectors = ["default", "google", "selector1", "k1", "s1", "mail"]
-    r = create_fast_resolver()
     for sel in common_selectors:
-        try:
-            qname = f"{sel}._domainkey.{domain}"
-            answers = r.resolve(qname, 'TXT')
-            for rdata in answers:
-                txt = rdata.to_text().strip('"')
-                if 'v=DKIM1' in txt or 'p=' in txt:
-                    return {"exists": True, "selector": sel, "score": 1.5}
-        except Exception:
-            continue
+        answers = doh_query(f"{sel}._domainkey.{domain}", 'TXT')
+        for ans in answers:
+            txt = ans.get('data', '').strip('"').strip()
+            if 'v=DKIM1' in txt or 'p=' in txt:
+                return {"exists": True, "selector": sel, "score": 1.5}
     return {"exists": False, "selector": None, "score": 0}
 
 
 def check_dmarc(domain):
-    if not dns:
-        return {"exists": False, "record": None, "policy": None, "has_rua": False, "has_ruf": False, "score": 0}
-    try:
-        r = create_fast_resolver()
-        answers = r.resolve(f"_dmarc.{domain}", 'TXT')
-        for rdata in answers:
-            txt = rdata.to_text().strip('"')
-            if 'v=DMARC1' in txt:
+    answers = doh_query(f"_dmarc.{domain}", 'TXT')
+    for ans in answers:
+        txt = ans.get('data', '').strip('"').strip()
+        if 'v=DMARC1' in txt:
+            policy = "none"
+            if 'p=reject' in txt:
+                policy = "reject"
+                score = 2.0
+            elif 'p=quarantine' in txt:
+                policy = "quarantine"
+                score = 1.5
+            elif 'p=none' in txt:
                 policy = "none"
-                if 'p=reject' in txt:
-                    policy = "reject"
-                    score = 2.0
-                elif 'p=quarantine' in txt:
-                    policy = "quarantine"
-                    score = 1.5
-                elif 'p=none' in txt:
-                    policy = "none"
-                    score = 0.7
-                else:
-                    score = 0.5
-                
-                has_rua = 'rua=' in txt
-                has_ruf = 'ruf=' in txt
-                if has_rua:
-                    score = min(score + 0.1, 2.0)
-                
-                return {"exists": True, "record": txt[:120], "policy": policy, "has_rua": has_rua, "has_ruf": has_ruf, "score": score}
-    except Exception:
-        pass
+                score = 0.7
+            else:
+                score = 0.5
+            
+            has_rua = 'rua=' in txt
+            has_ruf = 'ruf=' in txt
+            if has_rua:
+                score = min(score + 0.1, 2.0)
+            
+            return {"exists": True, "record": txt[:120], "policy": policy, "has_rua": has_rua, "has_ruf": has_ruf, "score": score}
     return {"exists": False, "record": None, "policy": None, "has_rua": False, "has_ruf": False, "score": 0}
 
 
 def check_mx(domain):
-    if not dns:
-        return {"exists": False, "records": [], "score": 0}
-    try:
-        r = create_fast_resolver()
-        answers = r.resolve(domain, 'MX')
-        records = []
-        for rdata in answers:
-            records.append({"priority": rdata.preference, "host": str(rdata.exchange).rstrip('.')})
-        if records:
-            score = 1.0
-            if len(records) >= 2:
-                score = 1.5
-            return {"exists": True, "records": records[:5], "score": score}
-    except Exception:
-        pass
+    answers = doh_query(domain, 'MX')
+    records = []
+    for ans in answers:
+        data_str = ans.get('data', '')
+        parts = data_str.split()
+        if len(parts) >= 2:
+            try:
+                pri = int(parts[0])
+                host = parts[1].rstrip('.')
+                records.append({"priority": pri, "host": host})
+            except ValueError:
+                pass
+    if records:
+        score = 1.0
+        if len(records) >= 2:
+            score = 1.5
+        return {"exists": True, "records": records[:5], "score": score}
     return {"exists": False, "records": [], "score": 0}
 
 
 def check_bimi(domain):
-    if not dns:
-        return {"exists": False, "record": None, "score": 0}
-    try:
-        r = create_fast_resolver()
-        answers = r.resolve(f"default._bimi.{domain}", 'TXT')
-        for rdata in answers:
-            txt = rdata.to_text().strip('"')
-            if 'v=BIMI1' in txt:
-                return {"exists": True, "record": txt[:120], "score": 0.5}
-    except Exception:
-        pass
+    answers = doh_query(f"default._bimi.{domain}", 'TXT')
+    for ans in answers:
+        txt = ans.get('data', '').strip('"').strip()
+        if 'v=BIMI1' in txt:
+            return {"exists": True, "record": txt[:120], "score": 0.5}
     return {"exists": False, "record": None, "score": 0}
-
-
-def check_ptr_reverse(domain):
-    if not dns:
-        return {"exists": False, "ip": None, "ptr": None, "score": 0}
-    try:
-        r = create_fast_resolver()
-        mx_answers = r.resolve(domain, 'MX')
-        for rdata in mx_answers:
-            mx_host = str(rdata.exchange).rstrip('.')
-            try:
-                a_answers = r.resolve(mx_host, 'A')
-                for a_rdata in a_answers:
-                    ip = str(a_rdata)
-                    rev_name = dns.reversename.from_address(ip)
-                    ptr_answers = r.resolve(rev_name, 'PTR')
-                    if ptr_answers:
-                        return {"exists": True, "ip": ip, "ptr": str(ptr_answers[0]).rstrip('.'), "score": 0.5}
-            except Exception:
-                continue
-    except Exception:
-        pass
-    return {"exists": False, "ip": None, "ptr": None, "score": 0}
 
 
 def compute_email_score(domain):
     results = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         futures = {
             executor.submit(check_spf, domain): 'spf',
             executor.submit(check_dkim, domain): 'dkim',
             executor.submit(check_dmarc, domain): 'dmarc',
             executor.submit(check_mx, domain): 'mx',
             executor.submit(check_bimi, domain): 'bimi',
-            executor.submit(check_ptr_reverse, domain): 'ptr',
         }
         for future in concurrent.futures.as_completed(futures):
             key = futures[future]
@@ -217,12 +169,12 @@ def compute_email_score(domain):
             except Exception:
                 results[key] = {"exists": False, "score": 0}
     
-    # Defaults for omitted heavy checks on serverless
+    results['ptr'] = {"exists": False, "ip": None, "ptr": None, "score": 0}
     results['domain_age'] = {"exists": False, "creation_date": None, "age_years": None, "score": 0}
     results['smtp_tls'] = {"exists": False, "host": None, "tls": None, "score": 0}
 
     raw_total = sum(r.get('score', 0) for r in results.values())
-    max_possible = 7.5
+    max_possible = 7.0
     normalized_score = round(min((raw_total / max_possible) * 10.0, 10.0), 1)
     
     if normalized_score >= 8.5: grade, grade_class = "A+", "grade-excellent"
@@ -266,7 +218,6 @@ class handler(BaseHTTPRequestHandler):
             
             results = []
             if target_type == 'domains':
-                # Limit concurrency to 5 threads in Vercel to stay within 10s execution limit
                 with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
                     future_map = {executor.submit(self.query_domain_full, t): t for t in targets}
                     for future in concurrent.futures.as_completed(future_map):
