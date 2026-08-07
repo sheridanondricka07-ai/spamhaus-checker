@@ -1,0 +1,7 @@
+[
+    {
+        "username": "your-spamhaus-username",
+        "password": "your-spamhaus-password",
+        "realm": "intel"
+    }
+]

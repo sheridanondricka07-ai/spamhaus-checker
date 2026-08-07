@@ -1,3 +1,5 @@
 tmp/
 *.exe
 .git/
+config.json
+spamhaus-checker/config.json
