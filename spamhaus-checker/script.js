@@ -359,6 +359,7 @@ document.addEventListener('DOMContentLoaded', () => {
             checkSpinner.classList.remove('spin');
             checkText.textContent = "Check Domains/IPs";
             checkAbortController = null;
+            progressContainer.classList.add('hidden');
         }
     });
 

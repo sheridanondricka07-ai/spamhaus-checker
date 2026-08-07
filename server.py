@@ -17,11 +17,12 @@ import whois
 PORT = 8000
 AUTH_TOKEN = None
 
-# Try loading config
+# Try loading config (accepts either a single account object or a list of accounts)
 CONFIG = {}
 if os.path.exists('config.json'):
     with open('config.json', 'r') as f:
-        CONFIG = json.load(f)
+        loaded = json.load(f)
+        CONFIG = loaded[0] if isinstance(loaded, list) and loaded else loaded
 
 # ============================================================
 # DNS / Email Scoring Engine

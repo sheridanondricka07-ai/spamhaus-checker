@@ -38,11 +38,12 @@ def enrich_reason(code, dataset=None):
             
     return code, code
 
-# Try loading config
+# Try loading config (accepts either a single account object or a list of accounts)
 CONFIG = {}
 if os.path.exists('config.json'):
     with open('config.json', 'r') as f:
-        CONFIG = json.load(f)
+        loaded = json.load(f)
+        CONFIG = loaded[0] if isinstance(loaded, list) and loaded else loaded
 
 def get_auth_token():
     global AUTH_TOKEN
