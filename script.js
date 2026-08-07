@@ -11,7 +11,8 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const btnClear = document.getElementById('btn-clear');
     const btnExport = document.getElementById('btn-export');
-    
+    const btnCopyDomains = document.getElementById('btn-copy-domains');
+
     const progressContainer = document.getElementById('progress-container');
     const progressText = document.getElementById('progress-text');
     const progressFill = document.getElementById('progress-fill');
@@ -381,6 +382,25 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+    });
+
+    // Copy Filtered Domains
+    btnCopyDomains.addEventListener('click', async () => {
+        const domains = Array.from(resultsTbody.querySelectorAll('tr'))
+            .filter(row => !row.classList.contains('hidden'))
+            .map(row => row.querySelector('td').textContent.trim());
+
+        if (domains.length === 0) return;
+
+        await navigator.clipboard.writeText(domains.join('\n'));
+
+        const originalHtml = btnCopyDomains.innerHTML;
+        btnCopyDomains.innerHTML = `<i data-lucide="check"></i> Copied ${domains.length}`;
+        lucide.createIcons();
+        setTimeout(() => {
+            btnCopyDomains.innerHTML = originalHtml;
+            lucide.createIcons();
+        }, 1500);
     });
 
     // --- Core Logic ---
