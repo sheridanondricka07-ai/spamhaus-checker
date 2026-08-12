@@ -436,8 +436,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 const processed = i + 1;
                 progressText.textContent = `${processed} / ${targets.length}`;
                 progressFill.style.width = `${(processed / targets.length) * 100}%`;
-                
-                await new Promise(r => setTimeout(r, 50));
             }
             
         } catch (err) {
