@@ -22,6 +22,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const statusBtns = document.querySelectorAll('.status-btn');
     const scoreMin = document.getElementById('score-min');
     const scoreMax = document.getElementById('score-max');
+    const spamhausScoreMin = document.getElementById('spamhaus-score-min');
+    const spamhausScoreMax = document.getElementById('spamhaus-score-max');
     let currentStatusFilter = 'All';
     let currentGradeFilter = 'All';
     const gradeBtns = document.querySelectorAll('.grade-btn');
@@ -67,6 +69,8 @@ document.addEventListener('DOMContentLoaded', () => {
         resultsData = [];
         scoreMin.value = '';
         scoreMax.value = '';
+        spamhausScoreMin.value = '';
+        spamhausScoreMax.value = '';
         currentStatusFilter = 'All';
         currentGradeFilter = 'All';
         statusBtns.forEach(b => {
@@ -101,17 +105,25 @@ document.addEventListener('DOMContentLoaded', () => {
     scoreMin.addEventListener('input', applyFilters);
     scoreMax.addEventListener('input', applyFilters);
 
+    // Spamhaus Score Range Filter
+    spamhausScoreMin.addEventListener('input', applyFilters);
+    spamhausScoreMax.addEventListener('input', applyFilters);
+
     function applyFilters() {
         const min = parseFloat(scoreMin.value);
         const max = parseFloat(scoreMax.value);
+        const spamhausMin = parseFloat(spamhausScoreMin.value);
+        const spamhausMax = parseFloat(spamhausScoreMax.value);
 
         Array.from(resultsTbody.querySelectorAll('tr')).forEach(row => {
             const statusCell = row.querySelector('td:nth-child(5)');
+            const spamhausScoreCell = row.querySelector('td:nth-child(2)');
             const emailScoreCell = row.querySelector('.email-score-num');
-            
+
             if (!statusCell) return;
-            
+
             const statusText = statusCell.textContent;
+            const spamhausScore = spamhausScoreCell ? parseFloat(spamhausScoreCell.textContent) : NaN;
             const emailScore = emailScoreCell ? parseFloat(emailScoreCell.dataset.score) : NaN;
             const rowGrade = row.dataset.emailGrade || '';
 
@@ -125,6 +137,12 @@ document.addEventListener('DOMContentLoaded', () => {
             // Grade Check
             if (show && currentGradeFilter !== 'All' && rowGrade !== currentGradeFilter) {
                 show = false;
+            }
+
+            // Spamhaus Score Range Check
+            if (show && !isNaN(spamhausScore)) {
+                if (!isNaN(spamhausMin) && spamhausScore < spamhausMin) show = false;
+                if (!isNaN(spamhausMax) && spamhausScore > spamhausMax) show = false;
             }
 
             // Email Score Range Check
