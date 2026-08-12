@@ -25,7 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const spamhausScoreMin = document.getElementById('spamhaus-score-min');
     const spamhausScoreMax = document.getElementById('spamhaus-score-max');
     let currentStatusFilter = 'All';
-    let currentGradeFilter = 'All';
+    let currentGradeFilters = new Set(); // empty = All
     const gradeBtns = document.querySelectorAll('.grade-btn');
 
     // Modal
@@ -72,7 +72,7 @@ document.addEventListener('DOMContentLoaded', () => {
         spamhausScoreMin.value = '';
         spamhausScoreMax.value = '';
         currentStatusFilter = 'All';
-        currentGradeFilter = 'All';
+        currentGradeFilters.clear();
         statusBtns.forEach(b => {
             b.classList.toggle('active', b.dataset.status === 'All');
         });
@@ -91,12 +91,29 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // Grade Filter
+    // Grade Filter (multi-select toggle, "All" resets the selection)
     gradeBtns.forEach(btn => {
         btn.addEventListener('click', (e) => {
-            gradeBtns.forEach(b => b.classList.remove('active'));
-            e.target.classList.add('active');
-            currentGradeFilter = e.target.dataset.grade;
+            const grade = e.currentTarget.dataset.grade;
+
+            if (grade === 'All') {
+                currentGradeFilters.clear();
+            } else {
+                if (currentGradeFilters.has(grade)) {
+                    currentGradeFilters.delete(grade);
+                } else {
+                    currentGradeFilters.add(grade);
+                }
+            }
+
+            gradeBtns.forEach(b => {
+                b.classList.toggle('active',
+                    currentGradeFilters.size === 0
+                        ? b.dataset.grade === 'All'
+                        : currentGradeFilters.has(b.dataset.grade)
+                );
+            });
+
             applyFilters();
         });
     });
@@ -135,7 +152,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             // Grade Check
-            if (show && currentGradeFilter !== 'All' && rowGrade !== currentGradeFilter) {
+            if (show && currentGradeFilters.size > 0 && !currentGradeFilters.has(rowGrade)) {
                 show = false;
             }
 
