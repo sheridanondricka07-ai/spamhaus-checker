@@ -439,49 +439,56 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- Core Logic ---
+    const CHECK_BATCH_SIZE = 25;
+
     async function processTargets(targets, signal) {
+        let processedCount = 0;
+
         try {
-            const response = await fetch('/api/check', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ targets: targets, type: currentMode }),
-                signal: signal
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP Error: ${response.status}`);
+            for (let i = 0; i < targets.length; i += CHECK_BATCH_SIZE) {
+                if (signal.aborted) throw new DOMException("Aborted", 'AbortError');
+
+                const batch = targets.slice(i, i + CHECK_BATCH_SIZE);
+
+                const response = await fetch('/api/check', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ targets: batch, type: currentMode }),
+                    signal: signal
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP Error: ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                const results = data.results || [];
+                results.forEach(result => {
+                    resultsData.push(result);
+                    appendResultRow(result);
+                });
+                applyFilters();
+
+                processedCount += batch.length;
+                progressText.textContent = `${processedCount} / ${targets.length}`;
+                progressFill.style.width = `${(processedCount / targets.length) * 100}%`;
             }
 
-            const data = await response.json();
-            
-            if (data.error) {
-                throw new Error(data.error);
-            }
-            
-            const results = data.results || [];
-            
-            for (let i = 0; i < results.length; i++) {
-                if (signal.aborted) throw new DOMException("Aborted", 'AbortError');
-                
-                const result = results[i];
-                resultsData.push(result);
-                appendResultRow(result);
-                applyFilters();
-                
-                const processed = i + 1;
-                progressText.textContent = `${processed} / ${targets.length}`;
-                progressFill.style.width = `${(processed / targets.length) * 100}%`;
-            }
-            
         } catch (err) {
             if (err.name !== 'AbortError') {
                 console.error("API Error:", err);
-                for (let i = 0; i < targets.length; i++) {
+                const remaining = targets.slice(processedCount);
+                remaining.forEach(t => {
                     const errorResult = {
-                        domain: targets[i], 
-                        score: "Server Err", 
-                        date: "-", 
-                        status: "Error", 
+                        domain: t,
+                        score: "Server Err",
+                        date: "-",
+                        status: "Error",
                         statusClass: "status-error",
                         email_score: 0,
                         email_grade: "F",
@@ -490,7 +497,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     };
                     resultsData.push(errorResult);
                     appendResultRow(errorResult);
-                }
+                });
+                applyFilters();
                 progressText.textContent = `Error / ${targets.length}`;
                 progressFill.style.width = `100%`;
             }
